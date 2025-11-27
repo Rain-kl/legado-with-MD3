@@ -416,7 +416,10 @@ class BookInfoActivity :
         tvOrigin.text = getString(R.string.origin_show, book.originName)
         tvLasted.text = getString(R.string.lasted_show, book.latestChapterTitle)
         tvChapter.text = getString(R.string.read_chapter_total, book.totalChapterNum)
-        tvChapterIndex.text = getString(R.string.read_chapter_index, book.durChapterIndex)
+        if (book.durChapterIndex + 1 == book.totalChapterNum)
+            tvChapterIndex.text = "已读完"
+        else
+            tvChapterIndex.text = getString(R.string.read_chapter_index, book.durChapterIndex + 1)
         tvDetail.text = book.getDisplayIntro()
         tvToc.visible(!book.isWebFile)
         upTvBookshelf()
@@ -552,9 +555,12 @@ class BookInfoActivity :
                     color = Color.BLACK
                 }
                 binding.cdInfo?.setCardBackgroundColor(color)
-                binding.llInfo.setBackgroundColor(color)
-                (binding.llCover.background as? GradientDrawable)?.colors =
-                    intArrayOf(Color.TRANSPARENT, color)
+                if (!AppConfig.isTransparent)
+                {
+                    binding.llInfo.setBackgroundColor(color)
+                    (binding.llCover.background as? GradientDrawable)?.colors =
+                        intArrayOf(Color.TRANSPARENT, color)
+                }
             }
         }
 
@@ -592,7 +598,8 @@ class BookInfoActivity :
                 duration = 400L
                 addUpdateListener { animation ->
                     val color = animation.animatedValue as Int
-                    binding.bgBookMask.setBackgroundColor(color)
+                    if (!AppConfig.isTransparent)
+                        binding.bgBookMask.setBackgroundColor(color)
                 }
             }
 
@@ -656,6 +663,7 @@ class BookInfoActivity :
         when {
             isLoading -> {
                 binding.tvToc.text = getString(R.string.toc_s, getString(R.string.loading))
+                binding.tvTocView.text = getString(R.string.loading)
                 binding.tvTocView.isEnabled = false
             }
 
@@ -664,6 +672,7 @@ class BookInfoActivity :
                     R.string.toc_s,
                     getString(R.string.error_load_toc)
                 )
+                binding.tvTocView.text = getString(R.string.error_load_toc)
                 binding.tvTocView.isEnabled = false
             }
 
@@ -671,6 +680,7 @@ class BookInfoActivity :
                 book?.let {
                     binding.tvToc.text = getString(R.string.toc_s, it.durChapterTitle)
                     binding.tvLasted.text = getString(R.string.lasted_show, it.latestChapterTitle)
+                    binding.tvTocView.text = getString(R.string.view_toc)
                     binding.tvTocView.isEnabled = true
                 }
             }
