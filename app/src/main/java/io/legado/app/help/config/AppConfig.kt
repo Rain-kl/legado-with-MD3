@@ -157,6 +157,12 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
             appCtx.putPrefBoolean(PreferKey.showUnread, value)
         }
 
+    var showTip: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.showTip, false)
+        set(value) {
+            appCtx.putPrefBoolean(PreferKey.showTip, value)
+        }
+
     var showUnreadNew: Boolean
         get() = appCtx.getPrefBoolean(PreferKey.showUnreadNew, true)
         set(value) {
@@ -229,6 +235,18 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
         get() = appCtx.getPrefInt(PreferKey.bookshelfLayoutGridPortrait, 3)
         set(value) {
             appCtx.putPrefInt(PreferKey.bookshelfLayoutGridPortrait, value)
+        }
+
+    var exploreLayoutGridLandscape: Int
+        get() = appCtx.getPrefInt(PreferKey.exploreLayoutGridLandscape, 7)
+        set(value) {
+            appCtx.putPrefInt(PreferKey.exploreLayoutGridLandscape, value)
+        }
+
+    var exploreLayoutGridPortrait: Int
+        get() = appCtx.getPrefInt(PreferKey.exploreLayoutGridPortrait, 3)
+        set(value) {
+            appCtx.putPrefInt(PreferKey.exploreLayoutGridPortrait, value)
         }
 
     var bookshelfLayoutGridLandscape: Int
@@ -897,5 +915,22 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
             appCtx.putPrefBoolean(PreferKey.shouldShowExpandButton, value)
         }
 
+    var exploreFilterState: Int
+        get() = appCtx.getPrefInt(PreferKey.exploreFilterState, 0)
+        set(value) {
+            appCtx.putPrefInt(PreferKey.exploreFilterState, value)
+        }
+
+    var exploreLayoutState: Int
+        get() = appCtx.getPrefInt(PreferKey.exploreLayoutState, 0)
+        set(value) {
+            appCtx.putPrefInt(PreferKey.exploreLayoutState, value)
+        }
+
+    var defaultSourceChangeAll: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.defaultSourceChangeAll, true)
+        set(value) {
+            appCtx.putPrefBoolean(PreferKey.defaultSourceChangeAll, value)
+        }
 }
 

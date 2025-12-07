@@ -235,7 +235,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         // path 为空表示恢复系统默认字体
         ReadBookConfig.textFont = path
         // 通知阅读界面刷新字体
-        postEvent(EventBus.UP_CONFIG, arrayListOf(8, 5))
+        postEvent(EventBus.UP_CONFIG, arrayListOf(8, 5, 2))
     }
 
     override val isInitFinish: Boolean get() = viewModel.isInitFinish
@@ -377,7 +377,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         //upSystemUiVisibility()
-        //binding.readView.upStatusBar()
+        binding.readView.upStyle()
         recreate()
     }
 
@@ -522,12 +522,34 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
+    private fun defaultChangeSource() {
+        if (AppConfig.defaultSourceChangeAll)
+        {
+            binding.readMenu.runMenuOut()
+            ReadBook.book?.let {
+                showDialogFragment(ChangeBookSourceDialog(it.name, it.author))
+            }
+        } else {
+            lifecycleScope.launch {
+                val book = ReadBook.book ?: return@launch
+                val chapter =
+                    appDb.bookChapterDao.getChapter(book.bookUrl, ReadBook.durChapterIndex)
+                        ?: return@launch
+                binding.readMenu.runMenuOut()
+                showDialogFragment(
+                    ChangeChapterSourceDialog(book.name, book.author, chapter.index, chapter.title)
+                )
+            }
+        }
+    }
+
     /**
      * 菜单
      */
     override fun onCompatOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.menu_change_source,
+            R.id.menu_change_source -> { defaultChangeSource() }
+
             R.id.menu_book_change_source -> {
                 binding.readMenu.runMenuOut()
                 ReadBook.book?.let {

@@ -204,6 +204,10 @@ object PreferKey {
     const val sharedElementEnterTransitionEnable = "sharedElementEnterTransitionEnable"
     const val bookshelfLayoutGridLandscape = "bookshelfLayoutGridLandscape"
     const val bookshelfLayoutGridPortrait = "bookshelfLayoutGridPortrait"
+
+    const val exploreLayoutGridLandscape = "exploreLayoutGridLandscape"
+
+    const val exploreLayoutGridPortrait = "exploreLayoutGridPortrait"
     const val tabletInterface = "tabletInterface"
     const val pureBlack = "pure_black"
     const val labelVisibilityMode = "labelVisibilityMode"
@@ -219,6 +223,13 @@ object PreferKey {
     const val disableMangaScrollAnimation = "disableMangaScrollAnimation"
     const val disableMangaCrossFade = "disableMangaCrossFade"
     const val titleBarMode = "titleBarMode"
-
     const val shouldShowExpandButton = "shouldShowExpandButton"
+
+    const val exploreFilterState = "explore_filter_state"
+
+    const val exploreLayoutState = "exploreLayoutState"
+
+    const val defaultSourceChangeAll = "defaultSourceChangeAll"
+
+    const val showTip = "showTip"
 }
