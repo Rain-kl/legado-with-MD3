@@ -264,6 +264,9 @@ interface BookSourceDao {
     @Delete
     fun delete(vararg bookSource: BookSource)
 
+    @Query("delete from book_sources")
+    fun clear()
+
     @Query("delete from book_sources where bookSourceUrl = :key")
     fun delete(key: String)
 

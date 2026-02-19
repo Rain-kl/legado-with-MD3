@@ -65,6 +65,7 @@ class BackupConfigFragment : PreferenceFragment(),
     private val waitDialog by lazy { WaitDialog(requireContext()) }
     private var backupJob: Job? = null
     private var restoreJob: Job? = null
+    private var restoreMode = Restore.RestoreMode.MERGE
 
     private val selectBackupPath = registerForActivityResult(HandleFileContract()) {
         it.uri?.let { uri ->
@@ -93,7 +94,7 @@ class BackupConfigFragment : PreferenceFragment(),
             waitDialog.setText("恢复中…")
             waitDialog.show()
             val task = Coroutine.async {
-                Restore.restore(appCtx, uri)
+                Restore.restore(appCtx, uri, restoreMode)
             }.onFinally {
                 waitDialog.dismiss()
             }
@@ -126,7 +127,9 @@ class BackupConfigFragment : PreferenceFragment(),
         upPreferenceSummary(PreferKey.backupPath, getPrefString(PreferKey.backupPath))
         findPreference<io.legado.app.lib.prefs.Preference>("web_dav_restore")
             ?.onLongClick {
-                restoreFromLocal()
+                chooseRestoreMode {
+                    restoreFromLocal(it)
+                }
                 true
             }
     }
@@ -332,6 +335,13 @@ class BackupConfigFragment : PreferenceFragment(),
     }
 
     fun restore() {
+        chooseRestoreMode { mode ->
+            restoreMode = mode
+            restoreInternal()
+        }
+    }
+
+    private fun restoreInternal() {
         waitDialog.setText(R.string.loading)
         waitDialog.setOnCancelListener {
             restoreJob?.cancel()
@@ -349,7 +359,7 @@ class BackupConfigFragment : PreferenceFragment(),
                 setTitle(R.string.restore)
                 setMessage("WebDavError\n${it.localizedMessage}\n将从本地备份恢复。")
                 okButton {
-                    restoreFromLocal()
+                    restoreFromLocal(restoreMode)
                 }
                 cancelButton()
             }
@@ -372,7 +382,7 @@ class BackupConfigFragment : PreferenceFragment(),
                 ) { _, index ->
                     if (index in 0 until names.size) {
                         listView.post {
-                            restoreWebDav(names[index])
+                            restoreWebDav(names[index], restoreMode)
                         }
                     }
                 }
@@ -382,11 +392,11 @@ class BackupConfigFragment : PreferenceFragment(),
         }
     }
 
-    private fun restoreWebDav(name: String) {
+    private fun restoreWebDav(name: String, mode: Restore.RestoreMode) {
         waitDialog.setText("恢复中…")
         waitDialog.show()
         val task = Coroutine.async {
-            AppWebDav.restoreWebDav(name)
+            AppWebDav.restoreWebDav(name, mode)
         }.onError {
             AppLog.put("WebDav恢复出错\n${it.localizedMessage}", it)
             appCtx.toastOnUi("WebDav恢复出错\n${it.localizedMessage}")
@@ -398,11 +408,22 @@ class BackupConfigFragment : PreferenceFragment(),
         }
     }
 
-    private fun restoreFromLocal() {
+    private fun restoreFromLocal(restoreType: Restore.RestoreMode = restoreMode) {
+        restoreMode = restoreType
         restoreDoc.launch {
             title = getString(R.string.select_restore_file)
             mode = HandleFileContract.FILE
             allowExtensions = arrayOf("zip")
+        }
+    }
+
+    private fun chooseRestoreMode(onSelected: (Restore.RestoreMode) -> Unit) {
+        val items = listOf(
+            getString(R.string.restore_mode_merge),
+            getString(R.string.restore_mode_overwrite)
+        )
+        requireContext().selector(R.string.restore_mode, items) { _, index ->
+            onSelected(if (index == 1) Restore.RestoreMode.OVERWRITE else Restore.RestoreMode.MERGE)
         }
     }
 

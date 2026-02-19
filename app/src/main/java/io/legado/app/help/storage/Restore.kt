@@ -70,7 +70,16 @@ object Restore {
 
     private const val TAG = "Restore"
 
-    suspend fun restore(context: Context, uri: Uri) {
+    enum class RestoreMode {
+        MERGE,
+        OVERWRITE
+    }
+
+    suspend fun restore(
+        context: Context,
+        uri: Uri,
+        mode: RestoreMode = RestoreMode.MERGE
+    ) {
         LogUtils.d(TAG, "开始恢复备份 uri:$uri")
         kotlin.runCatching {
             FileUtils.delete(Backup.backupPath)
@@ -86,7 +95,7 @@ object Restore {
             return
         }
         kotlin.runCatching {
-            restoreLocked(Backup.backupPath)
+            restoreLocked(Backup.backupPath, mode)
             LocalConfig.lastBackup = System.currentTimeMillis()
         }.onFailure {
             appCtx.toastOnUi("恢复备份出错\n${it.localizedMessage}")
@@ -94,13 +103,13 @@ object Restore {
         }
     }
 
-    suspend fun restoreLocked(path: String) {
+    suspend fun restoreLocked(path: String, mode: RestoreMode = RestoreMode.MERGE) {
         mutex.withLock {
-            restore(path)
+            restore(path, mode)
         }
     }
 
-    private suspend fun restore(path: String) {
+    private suspend fun restore(path: String, mode: RestoreMode) {
         val aes = BackupAES()
         fileToListT<Book>(path, "bookshelf.json")?.let {
             it.forEach { book ->
@@ -110,35 +119,49 @@ object Restore {
                 .forEach { book ->
                     book.coverUrl = LocalBook.getCoverPath(book)
                 }
-            val newBooks = arrayListOf<Book>()
-            val ignoreLocalBook = BackupConfig.ignoreLocalBook
-            it.forEach { book ->
-                if (ignoreLocalBook && book.isLocal) {
-                    return@forEach
+            if (mode == RestoreMode.OVERWRITE) {
+                appDb.bookDao.clear()
+                if (it.isNotEmpty()) {
+                    appDb.bookDao.insert(*it.toTypedArray())
                 }
-                if (appDb.bookDao.has(book.bookUrl)) {
-                    try {
-                        appDb.bookDao.update(book)
-                    } catch (_: SQLiteConstraintException) {
-                        appDb.bookDao.insert(book)
+            } else {
+                val newBooks = arrayListOf<Book>()
+                it.forEach { book ->
+                    if (appDb.bookDao.has(book.bookUrl)) {
+                        try {
+                            appDb.bookDao.update(book)
+                        } catch (_: SQLiteConstraintException) {
+                            appDb.bookDao.insert(book)
+                        }
+                    } else {
+                        newBooks.add(book)
                     }
-                } else {
-                    newBooks.add(book)
+                }
+                if (newBooks.isNotEmpty()) {
+                    appDb.bookDao.insert(*newBooks.toTypedArray())
                 }
             }
-            appDb.bookDao.insert(*newBooks.toTypedArray())
         }
         fileToListT<Bookmark>(path, "bookmark.json")?.let {
             appDb.bookmarkDao.insert(*it.toTypedArray())
         }
         fileToListT<BookGroup>(path, "bookGroup.json")?.let {
+            if (mode == RestoreMode.OVERWRITE) {
+                appDb.bookGroupDao.clear()
+            }
             appDb.bookGroupDao.insert(*it.toTypedArray())
         }
         fileToListT<BookSource>(path, "bookSource.json")?.let {
+            if (mode == RestoreMode.OVERWRITE) {
+                appDb.bookSourceDao.clear()
+            }
             appDb.bookSourceDao.insert(*it.toTypedArray())
         } ?: run {
             val bookSourceFile = File(path, "bookSource.json")
             if (bookSourceFile.exists()) {
+                if (mode == RestoreMode.OVERWRITE) {
+                    appDb.bookSourceDao.clear()
+                }
                 val json = bookSourceFile.readText()
                 ImportOldData.importOldSource(json)
             }
@@ -156,6 +179,9 @@ object Restore {
             appDb.searchKeywordDao.insert(*it.toTypedArray())
         }
         fileToListT<RuleSub>(path, "sourceSub.json")?.let {
+            if (mode == RestoreMode.OVERWRITE) {
+                appDb.ruleSubDao.clear()
+            }
             appDb.ruleSubDao.insert(*it.toTypedArray())
         }
         fileToListT<TxtTocRule>(path, "txtTocRule.json")?.let {
