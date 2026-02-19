@@ -92,9 +92,7 @@ class RemoteBookAdapter(context: Context, val callBack: CallBack) :
         }
         holder.itemView.setOnLongClickListener {
             getItem(holder.layoutPosition)?.let { remoteBook ->
-                if (remoteBook.isOnBookShelf) {
-                    callBack.addToBookShelfAgain(remoteBook)
-                }
+                if (!remoteBook.isDir) callBack.onRemoteBookLongClick(remoteBook)
             }
             true
         }
@@ -152,6 +150,6 @@ class RemoteBookAdapter(context: Context, val callBack: CallBack) :
         fun openDir(remoteBook: RemoteBook)
         fun upCountView()
         fun startRead(remoteBook: RemoteBook)
-        fun addToBookShelfAgain(remoteBook: RemoteBook)
+        fun onRemoteBookLongClick(remoteBook: RemoteBook)
     }
 }

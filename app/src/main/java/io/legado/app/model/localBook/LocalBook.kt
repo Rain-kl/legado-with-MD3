@@ -10,6 +10,7 @@ import io.legado.app.R
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.BookType
+import io.legado.app.cust.webdav.CustWebDavBookLocator
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BaseSource
 import io.legado.app.data.entities.Book
@@ -37,6 +38,7 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.webdav.WebDav
 import io.legado.app.lib.webdav.WebDavException
 import io.legado.app.model.analyzeRule.AnalyzeUrl
+import io.legado.app.model.analyzeRule.CustomUrl
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.FileDoc
 import io.legado.app.utils.FileUtils
@@ -82,7 +84,6 @@ object LocalBook {
             ?: let {
                 book.removeLocalUriCache()
                 val localArchiveUri = book.getArchiveUri()
-                val webDavUrl = book.getRemoteUrl()
                 if (localArchiveUri != null) {
                     // 重新导入对应的压缩包
                     importArchiveFile(localArchiveUri, book.originName) {
@@ -90,7 +91,7 @@ object LocalBook {
                     }.firstOrNull()?.let {
                         getBookInputStream(it)
                     }
-                } else if (webDavUrl != null && downloadRemoteBook(book)) {
+                } else if (downloadRemoteBook(book)) {
                     // 下载远程链接
                     getBookInputStream(book)
                 } else {
@@ -475,16 +476,22 @@ object LocalBook {
 
     //下载book对应的远程文件 并更新Book
     private fun downloadRemoteBook(localBook: Book): Boolean {
-        val webDavUrl = localBook.getRemoteUrl()
+        var webDavUrl = localBook.getRemoteUrl()
+        if (webDavUrl.isNullOrBlank()) {
+            webDavUrl = runBlocking {
+                CustWebDavBookLocator.findBookPathByName(localBook.originName)
+            }
+        }
         if (webDavUrl.isNullOrBlank()) throw NoStackTraceException("Book file is not webDav File")
+        val remoteUrl = webDavUrl
         try {
             AppConfig.defaultBookTreeUri
                 ?: throw NoBooksDirException()
             // 兼容旧版链接
             val webdav: WebDav = kotlin.runCatching {
-                WebDav.fromPath(webDavUrl)
+                WebDav.fromPath(remoteUrl)
             }.getOrElse {
-                AppWebDav.authorization?.let { WebDav(webDavUrl, it) }
+                AppWebDav.authorization?.let { WebDav(remoteUrl, it) }
                     ?: throw WebDavException("Unexpected defaultBookWebDav")
             }
             val inputStream = runBlocking {
@@ -503,6 +510,7 @@ object LocalBook {
                     // txt epub pdf umd
                     val fileUri = saveBookFile(it, localBook.originName)
                     localBook.bookUrl = FileDoc.fromUri(fileUri, false).toString()
+                    localBook.origin = BookType.webDavTag + CustomUrl(remoteUrl).toString()
                     localBook.save()
                 }
             }

@@ -19,6 +19,7 @@ import io.legado.app.help.config.LocalConfig
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.model.remote.RemoteBook
 import io.legado.app.ui.about.AppLogDialog
+import io.legado.app.ui.book.info.BookInfoActivity
 import io.legado.app.ui.book.import.BaseImportBookActivity
 import io.legado.app.ui.widget.SelectActionBar
 import io.legado.app.utils.ArchiveUtils
@@ -26,6 +27,7 @@ import io.legado.app.utils.FileDoc
 import io.legado.app.utils.find
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.showHelp
+import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
@@ -245,15 +247,31 @@ class RemoteBookActivity : BaseImportBookActivity<RemoteBookViewModel>(),
         }
     }
 
-    override fun addToBookShelfAgain(remoteBook: RemoteBook) {
-        alert(getString(R.string.sure), "是否重新加入书架？") {
-            yesButton {
-                binding.refreshProgressBar.isVisible = true
-                viewModel.addToBookshelf(hashSetOf(remoteBook)) {
-                    binding.refreshProgressBar.isVisible = false
+    override fun onRemoteBookLongClick(remoteBook: RemoteBook) {
+        appDb.bookDao.getBookByFileName(remoteBook.filename)?.let { linkedBook ->
+            startActivity(
+                android.content.Intent(this, BookInfoActivity::class.java).apply {
+                    putExtra("name", linkedBook.name)
+                    putExtra("author", linkedBook.author)
+                    putExtra("bookUrl", linkedBook.bookUrl)
                 }
-            }
-            noButton()
+            )
+            return
+        }
+        toastOnUi("正在下载并解析书籍详情...")
+        binding.refreshProgressBar.isVisible = true
+        viewModel.addToBookshelf(hashSetOf(remoteBook)) {
+            binding.refreshProgressBar.isVisible = false
+            adapter.notifyDataSetChanged()
+            appDb.bookDao.getBookByFileName(remoteBook.filename)?.let { newBook ->
+                startActivity(
+                    android.content.Intent(this, BookInfoActivity::class.java).apply {
+                        putExtra("name", newBook.name)
+                        putExtra("author", newBook.author)
+                        putExtra("bookUrl", newBook.bookUrl)
+                    }
+                )
+            } ?: toastOnUi("书籍导入完成，但未获取到详情")
         }
     }
 
