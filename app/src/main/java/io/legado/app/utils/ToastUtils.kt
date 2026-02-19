@@ -95,16 +95,15 @@ fun Context.longToastForJs(message: Int) {
 }
 
 // Fragment 调用代理
-fun Fragment.toastForJs(message: CharSequence?) = requireContext().toastForJs(message)
-fun Fragment.toastForJs(message: Int) = requireContext().toastForJs(message)
-fun Fragment.longToastForJs(message: CharSequence?) = requireContext().longToastForJs(message)
-fun Fragment.longToastForJs(message: Int) = requireContext().longToastForJs(message)
+fun Fragment.toastForJs(message: CharSequence?) = context?.toastForJs(message)
+fun Fragment.toastForJs(message: Int) = context?.toastForJs(message)
+fun Fragment.longToastForJs(message: CharSequence?) = context?.longToastForJs(message)
+fun Fragment.longToastForJs(message: Int) = context?.longToastForJs(message)
 
-fun Fragment.toastOnUi(message: Int) = requireActivity().toastOnUi(message)
+fun Fragment.toastOnUi(message: Int) = activity?.toastOnUi(message)
 
-fun Fragment.toastOnUi(message: CharSequence) = requireActivity().toastOnUi(message)
+fun Fragment.toastOnUi(message: CharSequence) = activity?.toastOnUi(message)
 
-fun Fragment.longToast(message: Int) = requireContext().longToastOnUi(message)
+fun Fragment.longToast(message: Int) = context?.longToastOnUi(message)
 
-fun Fragment.longToast(message: CharSequence) = requireContext().longToastOnUi(message)
-
+fun Fragment.longToast(message: CharSequence) = context?.longToastOnUi(message)
