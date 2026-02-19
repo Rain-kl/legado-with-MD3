@@ -198,6 +198,17 @@ class ImportBookActivity : BaseImportBookActivity<ImportBookViewModel>(),
     }
 
     private fun initRootPath(path: String) {
+        if (isAppSpecificPath(path)) {
+            kotlin.runCatching {
+                viewModel.rootDoc = FileDoc.fromFile(File(path))
+                viewModel.subDocs.clear()
+                upPath()
+            }.onFailure {
+                binding.tvEmptyMsg.visible()
+                selectFolder.launch()
+            }
+            return
+        }
         binding.tvEmptyMsg.visible()
         PermissionsCompat.Builder()
             .addPermissions(*Permissions.Group.STORAGE)
@@ -213,6 +224,23 @@ class ImportBookActivity : BaseImportBookActivity<ImportBookViewModel>(),
                 }
             }
             .request()
+    }
+
+    private fun isAppSpecificPath(path: String): Boolean {
+        val filePath = kotlin.runCatching { File(path).canonicalPath }.getOrElse { File(path).absolutePath }
+        val candidates = arrayOf(
+            filesDir,
+            cacheDir,
+            getExternalFilesDir(null),
+            externalCacheDir
+        )
+        return candidates.any { dir ->
+            val base = dir?.let { fileDir ->
+                kotlin.runCatching { fileDir.canonicalPath }.getOrElse { fileDir.absolutePath }
+            }
+                ?: return@any false
+            filePath == base || filePath.startsWith(base + File.separator)
+        }
     }
 
     private fun upSort(sort: Int) {

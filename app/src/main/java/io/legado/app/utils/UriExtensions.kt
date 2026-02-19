@@ -29,6 +29,22 @@ fun Uri.isContentScheme() = this.scheme == "content"
 
 fun Uri.isFileScheme() = this.scheme == "file"
 
+private fun isInDir(path: String, dir: File?): Boolean {
+    if (dir == null) return false
+    val base = kotlin.runCatching { dir.canonicalPath }.getOrElse { dir.absolutePath }
+    return path == base || path.startsWith(base + File.separator)
+}
+
+private fun Uri.isAppSpecificFileUri(context: Context): Boolean {
+    if (!isFileScheme()) return false
+    val rawPath = RealPathUtil.getPath(context, this) ?: this.path ?: return false
+    val path = kotlin.runCatching { File(rawPath).canonicalPath }.getOrElse { File(rawPath).absolutePath }
+    return isInDir(path, context.filesDir) ||
+        isInDir(path, context.cacheDir) ||
+        isInDir(path, context.getExternalFilesDir(null)) ||
+        isInDir(path, context.externalCacheDir)
+}
+
 /**
  * 读取URI
  */
@@ -43,6 +59,14 @@ fun AppCompatActivity.readUri(
             doc ?: throw NoStackTraceException("未获取到文件")
             val fileDoc = FileDoc.fromDocumentFile(doc)
             contentResolver.openInputStream(uri)!!.use { inputStream ->
+                success.invoke(fileDoc, inputStream)
+            }
+        } else if (uri.isAppSpecificFileUri(this)) {
+            val path = RealPathUtil.getPath(this, uri)
+                ?: throw NoStackTraceException("未获取到文件")
+            val file = File(path)
+            val fileDoc = FileDoc.fromFile(file)
+            FileInputStream(file).use { inputStream ->
                 success.invoke(fileDoc, inputStream)
             }
         } else {
@@ -80,6 +104,14 @@ fun Fragment.readUri(uri: Uri?, success: (fileDoc: FileDoc, inputStream: InputSt
             doc ?: throw NoStackTraceException("未获取到文件")
             val fileDoc = FileDoc.fromDocumentFile(doc)
             requireContext().contentResolver.openInputStream(uri)!!.use { inputStream ->
+                success.invoke(fileDoc, inputStream)
+            }
+        } else if (uri.isAppSpecificFileUri(requireContext())) {
+            val path = RealPathUtil.getPath(requireContext(), uri)
+                ?: throw NoStackTraceException("未获取到文件")
+            val file = File(path)
+            val fileDoc = FileDoc.fromFile(file)
+            FileInputStream(file).use { inputStream ->
                 success.invoke(fileDoc, inputStream)
             }
         } else {
