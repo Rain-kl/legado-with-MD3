@@ -134,6 +134,7 @@ object BookCover {
         sourceOrigin: String? = null,
         onLoadFinish: (() -> Unit)? = null,
     ): RequestBuilder<Drawable> {
+        val coverPath = normalizePath(path)
         if (AppConfig.useDefaultCover) {
             return ImageLoader.load(context, defaultDrawable)
                 .centerCrop()
@@ -142,7 +143,7 @@ object BookCover {
         if (sourceOrigin != null) {
             options = options.set(OkHttpModelLoader.sourceOriginOption, sourceOrigin)
         }
-        var builder = ImageLoader.load(context, path)
+        var builder = ImageLoader.load(context, coverPath)
             .apply(options)
         if (onLoadFinish != null) {
             builder = builder.addListener(object : RequestListener<Drawable> {
@@ -185,12 +186,13 @@ object BookCover {
         sourceOrigin: String? = null,
         transformation: Transformation<Bitmap>? = null,
     ): RequestBuilder<Drawable> {
+        val coverPath = normalizePath(path)
         var options = RequestOptions().set(OkHttpModelLoader.loadOnlyWifiOption, loadOnlyWifi)
             .set(OkHttpModelLoader.mangaOption, true)
         if (sourceOrigin != null) {
             options = options.set(OkHttpModelLoader.sourceOriginOption, sourceOrigin)
         }
-        var builder = ImageLoader.load(context, path)
+        var builder = ImageLoader.load(context, coverPath)
             .apply(options)
             .override(context.resources.displayMetrics.widthPixels, SIZE_ORIGINAL)
             .diskCacheStrategy(DiskCacheStrategy.ALL)
@@ -214,6 +216,7 @@ object BookCover {
         loadOnlyWifi: Boolean = false,
         sourceOrigin: String? = null,
     ): RequestBuilder<File?> {
+        val coverPath = normalizePath(path)
         var options = RequestOptions().set(OkHttpModelLoader.loadOnlyWifiOption, loadOnlyWifi)
             .set(OkHttpModelLoader.mangaOption, true)
         if (sourceOrigin != null) {
@@ -222,7 +225,7 @@ object BookCover {
         return Glide.with(context)
             .downloadOnly()
             .apply(options)
-            .load(path)
+            .load(coverPath)
     }
 
     /**
@@ -234,6 +237,7 @@ object BookCover {
         loadOnlyWifi: Boolean = false,
         sourceOrigin: String? = null,
     ): RequestBuilder<Drawable> {
+        val coverPath = normalizePath(path)
         val loadBlur = ImageLoader.load(context, defaultDrawable)
             .transform(BlurTransformation(25), CenterCrop())
         if (AppConfig.useDefaultCover) {
@@ -243,11 +247,28 @@ object BookCover {
         if (sourceOrigin != null) {
             options = options.set(OkHttpModelLoader.sourceOriginOption, sourceOrigin)
         }
-        return ImageLoader.load(context, path)
+        return ImageLoader.load(context, coverPath)
             .apply(options)
             .transform(BlurTransformation(25), CenterCrop())
             .transition(DrawableTransitionOptions.withCrossFade(1500))
             .thumbnail(loadBlur)
+    }
+
+    private fun normalizePath(path: String?): String? {
+        path ?: return null
+        val trimPath = path.trim()
+        if (trimPath.isBlank()) return null
+        if (trimPath.startsWith("http://")
+            || trimPath.startsWith("https://")
+            || trimPath.startsWith("content://")
+        ) {
+            return trimPath
+        }
+        if (trimPath.startsWith("file://")) {
+            val localPath = trimPath.removePrefix("file://")
+            return if (File(localPath).exists()) trimPath else null
+        }
+        return if (File(trimPath).exists()) trimPath else null
     }
 
     fun getCoverRule(): CoverRule {

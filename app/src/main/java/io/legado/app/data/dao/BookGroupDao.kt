@@ -52,6 +52,7 @@ interface BookGroupDao {
             AND durChapterIndex >= totalChapterNum - 1
             AND durChapterPos != 0
         ))
+        or groupId = ${BookGroup.IdRemote}
         
         or (groupId = ${BookGroup.IdError} and exists (select 1 from books where type & ${BookType.updateError} > 0))
         

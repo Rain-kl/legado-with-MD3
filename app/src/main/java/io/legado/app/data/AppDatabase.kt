@@ -214,6 +214,13 @@ abstract class AppDatabase : RoomDatabase() {
                 """.trimIndent()
                 db.execSQL(insertGroupReadFinished)
                 @Language("sql")
+                val insertBookGroupRemoteSql = """
+                    insert into book_groups(groupId, groupName, 'order', enableRefresh, show) 
+                    select ${BookGroup.IdRemote}, '远程书籍', -27, 1, 1
+                    where not exists (select * from book_groups where groupId = ${BookGroup.IdRemote})
+                """.trimIndent()
+                db.execSQL(insertBookGroupRemoteSql)
+                @Language("sql")
                 val insertBookGroupNetNoneGroupSql = """
                     insert into book_groups(groupId, groupName, 'order', show) 
                     select ${BookGroup.IdNetNone}, '网络未分组', -7, 1

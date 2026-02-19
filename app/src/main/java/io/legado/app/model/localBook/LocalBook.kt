@@ -374,6 +374,10 @@ object LocalBook {
         return Pair(name, author)
     }
 
+    fun parseNameAuthorByFileName(fileName: String): Pair<String, String> {
+        return analyzeNameAuthor(fileName)
+    }
+
     fun deleteBook(book: Book, deleteOriginal: Boolean) {
         kotlin.runCatching {
             BookHelp.clearCache(book)
@@ -476,50 +480,52 @@ object LocalBook {
 
     //下载book对应的远程文件 并更新Book
     private fun downloadRemoteBook(localBook: Book): Boolean {
-        var webDavUrl = localBook.getRemoteUrl()
-        if (webDavUrl.isNullOrBlank()) {
-            webDavUrl = runBlocking {
-                CustWebDavBookLocator.findBookPathByName(localBook.originName)
-            }
-        }
-        if (webDavUrl.isNullOrBlank()) throw NoStackTraceException("Book file is not webDav File")
-        val remoteUrl = webDavUrl
-        try {
-            AppConfig.defaultBookTreeUri
-                ?: throw NoBooksDirException()
-            // 兼容旧版链接
-            val webdav: WebDav = kotlin.runCatching {
-                WebDav.fromPath(remoteUrl)
-            }.getOrElse {
-                AppWebDav.authorization?.let { WebDav(remoteUrl, it) }
-                    ?: throw WebDavException("Unexpected defaultBookWebDav")
-            }
-            val inputStream = runBlocking {
-                webdav.downloadInputStream()
-            }
-            inputStream.use {
-                if (localBook.isArchive) {
-                    // 压缩包
-                    val archiveUri = saveBookFile(it, localBook.archiveName)
-                    val newBook = importArchiveFile(archiveUri, localBook.originName) { name ->
-                        name.contains(localBook.originName)
-                    }.first()
-                    localBook.origin = newBook.origin
-                    localBook.bookUrl = newBook.bookUrl
-                } else {
-                    // txt epub pdf umd
-                    val fileUri = saveBookFile(it, localBook.originName)
-                    localBook.bookUrl = FileDoc.fromUri(fileUri, false).toString()
-                    localBook.origin = BookType.webDavTag + CustomUrl(remoteUrl).toString()
-                    localBook.save()
+        val candidates = linkedSetOf<String>()
+        localBook.getRemoteUrl()?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+        runBlocking {
+            CustWebDavBookLocator.findBookPathByName(localBook.originName)
+        }?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+        if (candidates.isEmpty()) throw NoStackTraceException("Book file is not webDav File")
+        var lastError: Throwable? = null
+        candidates.forEach { remoteUrl ->
+            kotlin.runCatching {
+                AppConfig.defaultBookTreeUri ?: throw NoBooksDirException()
+                // 兼容旧版链接
+                val webdav: WebDav = kotlin.runCatching {
+                    WebDav.fromPath(remoteUrl)
+                }.getOrElse {
+                    AppWebDav.authorization?.let { WebDav(remoteUrl, it) }
+                        ?: throw WebDavException("Unexpected defaultBookWebDav")
                 }
+                val inputStream = runBlocking {
+                    webdav.downloadInputStream()
+                }
+                inputStream.use {
+                    if (localBook.isArchive) {
+                        // 压缩包
+                        val archiveUri = saveBookFile(it, localBook.archiveName)
+                        val newBook = importArchiveFile(archiveUri, localBook.originName) { name ->
+                            name.contains(localBook.originName)
+                        }.first()
+                        localBook.origin = newBook.origin
+                        localBook.bookUrl = newBook.bookUrl
+                    } else {
+                        // txt epub pdf umd
+                        val fileUri = saveBookFile(it, localBook.originName)
+                        localBook.bookUrl = FileDoc.fromUri(fileUri, false).toString()
+                        localBook.origin = BookType.webDavTag + CustomUrl(remoteUrl).toString()
+                        localBook.save()
+                    }
+                }
+            }.onSuccess {
+                return true
+            }.onFailure {
+                lastError = it
             }
-            return true
-        } catch (e: Exception) {
-            e.printOnDebug()
-            AppLog.put("自动下载webDav书籍失败", e)
-            return false
         }
+        lastError?.printOnDebug()
+        AppLog.put("自动下载webDav书籍失败", lastError ?: NoStackTraceException("unknown"))
+        return false
     }
 
 }

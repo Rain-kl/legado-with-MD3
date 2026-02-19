@@ -27,6 +27,7 @@ import io.legado.app.utils.spToPx
 import io.legado.app.utils.textHeight
 import io.legado.app.utils.themeColor
 import io.legado.app.utils.toStringArray
+import java.io.File
 
 /**
  * 封面
@@ -249,7 +250,8 @@ class CoverImageView @JvmOverloads constructor(
         lifecycle: Lifecycle? = null,
         onLoadFinish: (() -> Unit)? = null
     ) {
-        this.bitmapPath = path
+        val validPath = normalizeCoverPath(path)
+        this.bitmapPath = validPath
         this.name = name?.replace(AppPattern.bdRegex, "")?.trim()
         this.author = author?.replace(AppPattern.bdRegex, "")?.trim()
         defaultCover = true
@@ -264,9 +266,9 @@ class CoverImageView @JvmOverloads constructor(
                 options = options.set(OkHttpModelLoader.sourceOriginOption, sourceOrigin)
             }
             var builder = if (fragment != null && lifecycle != null) {
-                ImageLoader.load(fragment, lifecycle, path)
+                ImageLoader.load(fragment, lifecycle, validPath)
             } else {
-                ImageLoader.load(context, path)//Glide自动识别http://,content://和file://
+                ImageLoader.load(context, validPath)//Glide自动识别http://,content://和file://
             }
             builder = builder.apply(options)
                 .placeholder(BookCover.defaultDrawable)
@@ -300,6 +302,19 @@ class CoverImageView @JvmOverloads constructor(
                 .centerCrop()
                 .into(this)
         }
+    }
+
+    private fun normalizeCoverPath(path: String?): String? {
+        path ?: return null
+        if (path.isBlank()) return null
+        if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("content://")) {
+            return path
+        }
+        if (path.startsWith("file://")) {
+            val localPath = path.removePrefix("file://")
+            return if (File(localPath).exists()) path else null
+        }
+        return if (File(path).exists()) path else null
     }
 
 }

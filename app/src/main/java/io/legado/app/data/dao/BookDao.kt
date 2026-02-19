@@ -29,6 +29,7 @@ interface BookDao {
             BookGroup.IdManga -> flowManga()
             BookGroup.IdText -> flowText()
             BookGroup.IdError -> flowUpdateError()
+            BookGroup.IdRemote -> flowRemote()
             BookGroup.IdUnread -> flowUnread()
             BookGroup.IdReading -> flowReading()
             BookGroup.IdReadFinished -> flowReadFinished()
@@ -75,6 +76,9 @@ interface BookDao {
 
     @Query("SELECT * FROM books WHERE (`group` & :group) > 0")
     fun flowByUserGroup(group: Long): Flow<List<Book>>
+
+    @Query("SELECT * FROM books WHERE origin like '${BookType.webDavTag}%'")
+    fun flowRemote(): Flow<List<Book>>
 
     @Query("SELECT * FROM books WHERE name like '%'||:key||'%' or author like '%'||:key||'%'")
     fun flowSearch(key: String): Flow<List<Book>>

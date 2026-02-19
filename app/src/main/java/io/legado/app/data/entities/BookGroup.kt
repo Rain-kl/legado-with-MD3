@@ -36,6 +36,7 @@ data class BookGroup(
         const val IdManga = -7L
         const val IdText = -8L
         const val IdError = -11L
+        const val IdRemote = -12L
         const val IdReading = -20L
         const val IdUnread = -21L
         const val IdReadFinished = -22L
@@ -56,6 +57,7 @@ data class BookGroup(
             IdManga -> GroupNameInfo(groupName, context.getString(R.string.manga))
             IdText -> GroupNameInfo(groupName, context.getString(R.string.noval))
             IdError -> GroupNameInfo(groupName, context.getString(R.string.update_book_fail))
+            IdRemote -> GroupNameInfo(groupName, context.getString(R.string.remote_book))
             IdReading -> GroupNameInfo(groupName, context.getString(R.string.is_reading))
             IdUnread -> GroupNameInfo(groupName, context.getString(R.string.is_unread))
             IdReadFinished -> GroupNameInfo(groupName, context.getString(R.string.is_read_finished))

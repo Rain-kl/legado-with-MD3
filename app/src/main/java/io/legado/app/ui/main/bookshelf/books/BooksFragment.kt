@@ -23,6 +23,7 @@ import io.legado.app.R
 import io.legado.app.base.BaseFragment
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.EventBus
+import io.legado.app.cust.webdav.CustRemoteBookshelf
 import io.legado.app.data.AppDatabase
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
@@ -49,6 +50,7 @@ import io.legado.app.utils.flowWithLifecycleAndDatabaseChangeFirst
 import io.legado.app.utils.observeEvent
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.startActivityForBook
+import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -125,7 +127,11 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
             binding.refreshLayout.isEnabled = enableRefresh
         }
         initRecyclerView()
-        upRecyclerData()
+        if (groupId == BookGroup.IdRemote) {
+            loadRemoteBooks()
+        } else {
+            upRecyclerData()
+        }
     }
 
     private fun initRecyclerView() {
@@ -133,6 +139,11 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
         upFastScrollerBar()
         //binding.refreshLayout.setColorSchemeColors(accentColor)
         binding.refreshLayout.setOnRefreshListener {
+            if (groupId == BookGroup.IdRemote) {
+                binding.refreshLayout.isRefreshing = true
+                loadRemoteBooks(true)
+                return@setOnRefreshListener
+            }
             val books = booksAdapter.getItems()
             val refreshList = if (AppConfig.bookshelfRefreshingLimit > 0) {
                 books.take(AppConfig.bookshelfRefreshingLimit)
@@ -256,6 +267,36 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
         }
     }
 
+    private fun loadRemoteBooks(fromUserRefresh: Boolean = false) {
+        booksFlowJob?.cancel()
+        booksFlowJob = viewLifecycleOwner.lifecycleScope.launch {
+            binding.refreshLayout.isEnabled = true
+            if (fromUserRefresh) {
+                AppLog.put("远程书籍: 开始下拉刷新")
+            }
+            kotlin.runCatching {
+                CustRemoteBookshelf.listRemoteShelfBooks()
+            }.onSuccess { list ->
+                if (view == null) return@onSuccess
+                binding.emptyView.isGone = list.isNotEmpty()
+                booksAdapter.setItems(list)
+                if (fromUserRefresh) {
+                    binding.refreshLayout.isRefreshing = false
+                    AppLog.put("远程书籍: 下拉刷新成功(${list.size})")
+                }
+            }.onFailure {
+                if (view == null) return@onFailure
+                binding.emptyView.isGone = booksAdapter.itemCount > 0
+                val msg = it.localizedMessage ?: it.message ?: it.toString()
+                toastOnUi("获取远程书籍失败\n$msg")
+                if (fromUserRefresh) {
+                    binding.refreshLayout.isRefreshing = false
+                }
+                AppLog.put("远程书籍: 刷新失败\n$msg", it)
+            }
+        }
+    }
+
     private fun startLastUpdateTimeJob() {
         upLastUpdateTimeJob?.cancel()
         if (!AppConfig.showLastUpdateTime || (bookshelfLayoutMode != 0 && bookshelfLayoutMode != 4)) {
@@ -299,6 +340,10 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
     }
 
     override fun open(book: Book, sharedView: View) {
+        if (groupId == BookGroup.IdRemote) {
+            openRemoteBook(book)
+            return
+        }
         if (AppConfig.sharedElementEnterTransitionEnable){
             val transitionName = "book_${book.bookUrl}"
             sharedView.transitionName = transitionName
@@ -326,7 +371,37 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
         }
     }
 
+    private fun openRemoteBook(book: Book) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            kotlin.runCatching {
+                CustRemoteBookshelf.ensureLocalBook(book)
+            }.onSuccess { localBook ->
+                startActivityForBook(localBook)
+            }.onFailure {
+                val msg = it.localizedMessage ?: it.message ?: it.toString()
+                toastOnUi("下载远程书籍失败\n$msg")
+            }
+        }
+    }
+
     override fun openBookInfo(book: Book, sharedView: View) {
+        if (groupId == BookGroup.IdRemote) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                kotlin.runCatching {
+                    CustRemoteBookshelf.ensureLocalBook(book)
+                }.onSuccess { localBook ->
+                    startActivity<BookInfoActivity> {
+                        putExtra("name", localBook.name)
+                        putExtra("author", localBook.author)
+                        putExtra("bookUrl", localBook.bookUrl)
+                    }
+                }.onFailure {
+                    val msg = it.localizedMessage ?: it.message ?: it.toString()
+                    toastOnUi("获取远程书籍详情失败\n$msg")
+                }
+            }
+            return
+        }
         if (AppConfig.sharedElementEnterTransitionEnable){
             val intent = Intent(requireContext(), BookInfoActivity::class.java).apply {
                 putExtra("name", book.name)
