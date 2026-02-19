@@ -480,6 +480,7 @@ open class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
         binding.viewPagerMain.post {
             val currentPosition = if (pagePosition < bottomMenuCount) pagePosition else 0
             binding.viewPagerMain.setCurrentItem(currentPosition, false)
+            updateMainPagerSwipeState(currentPosition)
             getNavigationBarView().menu[currentPosition].isChecked = true
             updateBackCallbackState()
         }
@@ -536,6 +537,7 @@ open class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
     private inner class PageChangeCallback : ViewPager2.OnPageChangeCallback() {
         override fun onPageSelected(position: Int) {
             pagePosition = position
+            updateMainPagerSwipeState(position)
             getNavigationBarView().selectedItemId = when (realPositions[position]) {
                 idBookshelf -> R.id.menu_bookshelf
                 idExplore -> R.id.menu_discovery
@@ -555,6 +557,10 @@ open class MainActivity : VMBaseActivity<ActivityMainBinding, MainViewModel>(),
 
     private fun updateBackCallbackState() {
         backCallback.isEnabled = (pagePosition != 0)
+    }
+
+    private fun updateMainPagerSwipeState(position: Int) {
+        binding.viewPagerMain.isUserInputEnabled = position != 0
     }
 
     private inner class TabFragmentPageAdapter(
