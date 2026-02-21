@@ -7,6 +7,7 @@ import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.LiveData
 import io.legado.app.R
+import io.legado.app.constant.PreferKey
 import io.legado.app.base.VMBaseFragment
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
@@ -25,12 +26,14 @@ import io.legado.app.ui.file.HandleFileContract
 import io.legado.app.ui.main.MainFragmentInterface
 import io.legado.app.ui.main.MainViewModel
 import io.legado.app.ui.widget.dialog.WaitDialog
+import io.legado.app.utils.getPrefString
 import io.legado.app.utils.isAbsUrl
 import io.legado.app.utils.readText
 import io.legado.app.utils.sendToClip
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.toastOnUi
+import splitties.init.appCtx
 
 abstract class BaseBookshelfFragment(layoutId: Int) : VMBaseFragment<BookshelfViewModel>(layoutId),
     MainFragmentInterface {
@@ -117,8 +120,15 @@ abstract class BaseBookshelfFragment(layoutId: Int) : VMBaseFragment<BookshelfVi
     protected fun initBookGroupData() {
         groupsLiveData?.removeObservers(viewLifecycleOwner)
         groupsLiveData = appDb.bookGroupDao.show.apply {
-            observe(viewLifecycleOwner) {
-                upGroup(it)
+            observe(viewLifecycleOwner) { groups ->
+                val showRemoteGroup = !appCtx.getPrefString(PreferKey.webDavAccount)
+                    .isNullOrBlank() && !appCtx.getPrefString(PreferKey.webDavPassword)
+                    .isNullOrBlank()
+                if (showRemoteGroup) {
+                    upGroup(groups)
+                } else {
+                    upGroup(groups.filter { it.groupId != BookGroup.IdRemote })
+                }
             }
         }
     }
