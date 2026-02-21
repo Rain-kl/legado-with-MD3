@@ -402,6 +402,17 @@ fun TocScreen(
 
                         else -> {
                             RoundDropdownMenuItem(
+                                text = "按分数排序",
+                                trailingIcon = {
+                                    Checkbox(
+                                        checked = viewModel.moderationSortByScore.collectAsStateWithLifecycle().value,
+                                        onCheckedChange = null
+                                    )
+                                },
+                                onClick = { viewModel.toggleModerationSortByScore() }
+                            )
+                            PillDivider()
+                            RoundDropdownMenuItem(
                                 text = "重新安全审查",
                                 onClick = {
                                     viewModel.runSafetyModerationByToc(forceRefresh = true)
@@ -860,7 +871,12 @@ fun ModerationListContent(
     contentPadding: PaddingValues
 ) {
     val moderationState by viewModel.moderationState.collectAsStateWithLifecycle()
+    val sortByScore by viewModel.moderationSortByScore.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val displayItems = remember(moderationState.flaggedItems, sortByScore) {
+        if (sortByScore) moderationState.flaggedItems.sortedByDescending { it.score }
+        else moderationState.flaggedItems
+    }
 
     if (moderationState.isRunning) {
         Box(
@@ -889,7 +905,7 @@ fun ModerationListContent(
         return
     }
 
-    if (moderationState.flaggedItems.isEmpty()) {
+    if (displayItems.isEmpty()) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -908,14 +924,14 @@ fun ModerationListContent(
     ) {
         item(key = "moderation-summary") {
             Text(
-                text = "命中 ${moderationState.flaggedItems.size} 章 · 已审查 ${moderationState.checkedChapters} 章 · 跳过 ${moderationState.skippedChapters} 章",
+                text = "命中 ${displayItems.size} 章 · 已审查 ${moderationState.checkedChapters} 章 · 跳过 ${moderationState.skippedChapters} 章",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         items(
-            items = moderationState.flaggedItems,
+            items = displayItems,
             key = { it.chapterIndex }
         ) { item ->
             Surface(

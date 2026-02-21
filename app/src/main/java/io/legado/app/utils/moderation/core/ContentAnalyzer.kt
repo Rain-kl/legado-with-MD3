@@ -8,6 +8,12 @@ import io.legado.app.utils.moderation.pattern.ModerationPatterns
 import java.util.LinkedHashMap
 import kotlin.collections.iterator
 
+data class ChapterQuickScore(
+    val score: Double,
+    val flaggedLinesCount: Int,
+    val isFlagged: Boolean
+)
+
 /**
  * 内容分析器 —— 对已拆分的章节进行敏感内容评分。
  *
@@ -100,6 +106,35 @@ class ContentAnalyzer(private val config: ModerationConfig) {
             title = title,
             score = chapterScore,
             flaggedLines = flaggedLines.toList()
+        )
+    }
+
+    /**
+     * 轻量章节评分接口：仅返回分数与命中行数，不构建明细列表。
+     * 用于性能敏感场景（例如目录页快速审查）。
+     */
+    fun analyzeChapterQuick(lines: List<String>): ChapterQuickScore {
+        if (lines.isEmpty()) {
+            return ChapterQuickScore(
+                score = 0.0,
+                flaggedLinesCount = 0,
+                isFlagged = false
+            )
+        }
+
+        var chapterScore = 0.0
+        var flaggedLinesCount = 0
+        for (line in lines) {
+            val lineScore = scoreLine(line)
+            if (lineScore >= config.lineScoreThreshold) {
+                chapterScore += lineScore / 2.0
+                flaggedLinesCount++
+            }
+        }
+        return ChapterQuickScore(
+            score = chapterScore,
+            flaggedLinesCount = flaggedLinesCount,
+            isFlagged = chapterScore >= config.chapterScoreThreshold
         )
     }
 

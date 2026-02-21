@@ -25,13 +25,15 @@ import io.legado.app.utils.moderation.cache.TocModerationCacheItem
 import io.legado.app.utils.moderation.cache.TocModerationCachePayload
 import io.legado.app.utils.moderation.cache.TocModerationCacheStore
 import io.legado.app.utils.moderation.core.ContentAnalyzer
-import io.legado.app.utils.moderation.core.TextFileReader
 import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.rules.RuleActionState
 import io.legado.app.ui.widget.components.rules.SelectableItem
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -130,6 +132,11 @@ class TocViewModel(
     initialState = TocActionState()
 ) {
     private val analyzer by lazy { ContentAnalyzer(ModerationConfig.defaults()) }
+    private val moderationDispatcher by lazy {
+        Dispatchers.Default.limitedParallelism(
+            Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+        )
+    }
 
     private val bookUrlFlow = savedStateHandle.getStateFlow<String?>("bookUrl", null)
     val bookState = bookUrlFlow
@@ -145,6 +152,8 @@ class TocViewModel(
     val collapsedVolumes = _collapsedVolumes.asStateFlow()
     private val _moderationState = MutableStateFlow(TocModerationState())
     val moderationState: StateFlow<TocModerationState> = _moderationState.asStateFlow()
+    private val _moderationSortByScore = MutableStateFlow(false)
+    val moderationSortByScore: StateFlow<Boolean> = _moderationSortByScore.asStateFlow()
 
     val downloadSummary: StateFlow<String> =
         CacheBook.downloadSummaryFlow
@@ -511,56 +520,69 @@ class TocViewModel(
                 hasRun = true
             )
 
-            val contentProcessor = ContentProcessor.get(book)
-            val flagged = mutableListOf<TocModerationItemUi>()
-            var checked = 0
-            var skipped = 0
+            data class ChapterModerationResult(
+                val checked: Boolean,
+                val skipped: Boolean,
+                val flagged: TocModerationItemUi?
+            )
 
-            chapters.forEach { chapter ->
-                val rawContent = BookHelp.getContent(book, chapter)
-                if (rawContent.isNullOrBlank()) {
-                    skipped++
-                    return@forEach
-                }
+            val results = coroutineScope {
+                chapters.map { chapter ->
+                    async(moderationDispatcher) {
+                        val rawContent = BookHelp.getContent(book, chapter)
+                        if (rawContent.isNullOrBlank()) {
+                            return@async ChapterModerationResult(
+                                checked = false,
+                                skipped = true,
+                                flagged = null
+                            )
+                        }
 
-                val processedContent = contentProcessor
-                    .getContent(book, chapter, rawContent, includeTitle = false)
-                    .toString()
-                    .trim()
-                if (processedContent.isBlank()) {
-                    skipped++
-                    return@forEach
-                }
+                        // Fast path for moderation:
+                        // avoid heavy replacement/re-segment pipeline in ContentProcessor.
+                        val lines = rawContent
+                            .lineSequence()
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .toList()
+                        if (lines.isEmpty()) {
+                            return@async ChapterModerationResult(
+                                checked = false,
+                                skipped = true,
+                                flagged = null
+                            )
+                        }
 
-                val lines = TextFileReader.readLinesFromString(processedContent)
-                if (lines.isEmpty()) {
-                    skipped++
-                    return@forEach
-                }
+                        val quick = analyzer.analyzeChapterQuick(lines)
+                        val flaggedItem = if (quick.isFlagged) {
+                            TocModerationItemUi(
+                                chapterIndex = chapter.index,
+                                chapterTitle = chapter.title,
+                                score = quick.score,
+                                flaggedLinesCount = quick.flaggedLinesCount
+                            )
+                        } else {
+                            null
+                        }
 
-                val chapterLines = buildList(lines.size + 1) {
-                    add(chapter.title)
-                    addAll(lines)
-                }
-                val result = analyzer.analyze(linkedMapOf(chapter.index to chapterLines))
-                result.details.firstOrNull()?.let { detail ->
-                    flagged.add(
-                        TocModerationItemUi(
-                            chapterIndex = chapter.index,
-                            chapterTitle = chapter.title,
-                            score = detail.score,
-                            flaggedLinesCount = detail.flaggedLines.size
+                        ChapterModerationResult(
+                            checked = true,
+                            skipped = false,
+                            flagged = flaggedItem
                         )
-                    )
-                }
-                checked++
+                    }
+                }.awaitAll()
             }
+
+            val checked = results.count { it.checked }
+            val skipped = results.count { it.skipped }
+            val flagged = results.mapNotNull { it.flagged }
 
             _moderationState.value = TocModerationState(
                 isRunning = false,
                 checkedChapters = checked,
                 skippedChapters = skipped,
-                flaggedItems = flagged.sortedByDescending { it.score },
+                flaggedItems = flagged,
                 hasRun = true
             )
             TocModerationCacheStore.put(
@@ -601,6 +623,10 @@ class TocViewModel(
                 )
             }
         )
+    }
+
+    fun toggleModerationSortByScore() {
+        _moderationSortByScore.update { !it }
     }
 
     fun updateBookmark(bookmark: Bookmark) =

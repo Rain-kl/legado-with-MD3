@@ -73,6 +73,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/menu_text_moderation"
+        android:title="@string/text_moderation"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/menu_clear_cache"
         android:title="@string/clear_cache"
         app:showAsAction="never" />
@@ -80,11 +85,6 @@
     <item
         android:id="@+id/menu_log"
         android:title="@string/log"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/menu_text_moderation"
-        android:title="@string/text_moderation"
         app:showAsAction="never" />
 
 </menu>
