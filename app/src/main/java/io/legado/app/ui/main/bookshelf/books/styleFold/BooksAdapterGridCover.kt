@@ -14,6 +14,7 @@ import io.legado.app.databinding.ItemBookshelfGridCompactBinding
 import io.legado.app.databinding.ItemBookshelfGridCompactGroupBinding
 import io.legado.app.help.book.getBookTypeName
 import io.legado.app.help.book.isLocal
+import io.legado.app.help.book.isRemoteShelfNewBadge
 import io.legado.app.help.config.AppConfig
 import io.legado.app.utils.gone
 import io.legado.app.utils.visible
@@ -117,16 +118,22 @@ class BooksAdapterGridCover(context: Context, callBack: CallBack) :
                 binding.rlLoading.visibility = View.GONE
                 if (AppConfig.showUnread) {
                     val unreadCount = item.getUnreadChapterNum()
-                    if (unreadCount > 0) {
+                    if (item.isRemoteShelfNewBadge()) {
+                        binding.cdUnread.visibility = View.VISIBLE
+                        binding.tvUnread.text = "新"
+                        binding.newChapter.gone()
+                    } else if (unreadCount > 0) {
                         binding.cdUnread.visibility = View.VISIBLE
                         binding.tvUnread.text = unreadCount.toString()
                         if (AppConfig.showUnreadNew)
                             binding.newChapter.isVisible = item.lastCheckCount > 0
                     } else {
                         binding.cdUnread.visibility = View.GONE
+                        binding.newChapter.gone()
                     }
                 } else {
                     binding.cdUnread.visibility = View.GONE
+                    binding.newChapter.gone()
                 }
                 if (AppConfig.showTip){
                     binding.cdTip.visible()

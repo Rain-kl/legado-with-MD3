@@ -17,6 +17,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.RuleBigDataHelp
 import io.legado.app.help.config.AppConfig
+import io.legado.app.model.analyzeRule.CustomUrl
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.utils.FileDoc
 import io.legado.app.utils.GSON
@@ -262,6 +263,24 @@ fun Book.getRemoteUrl(): String? {
         return origin.substring(BookType.webDavTag.length)
     }
     return null
+}
+
+fun Book.isRemoteMetadataMissing(): Boolean {
+    if (!origin.startsWith(BookType.webDavTag)) return false
+    val remoteUrl = origin.removePrefix(BookType.webDavTag)
+    return kotlin.runCatching {
+        val value = CustomUrl(remoteUrl).getAttr()["metaMissing"]
+        when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> value == "1" || value.equals("true", true)
+            else -> false
+        }
+    }.getOrDefault(false)
+}
+
+fun Book.isRemoteShelfNewBadge(): Boolean {
+    return bookUrl.startsWith("cust_remote://") && isRemoteMetadataMissing()
 }
 
 fun Book.setType(@BookType.Type vararg types: Int) {

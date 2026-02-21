@@ -7,6 +7,7 @@ import io.legado.app.data.entities.Book
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.AppWebDav
 import io.legado.app.help.config.AppConfig
+import io.legado.app.help.book.isRemoteMetadataMissing
 import io.legado.app.lib.webdav.Authorization
 import io.legado.app.model.analyzeRule.CustomUrl
 import io.legado.app.model.localBook.LocalBook
@@ -22,6 +23,7 @@ import java.io.File
 object CustRemoteBookshelf {
 
     private const val CACHE_FILE_NAME = "remote_shelf_cache.json"
+    private const val META_MISSING_ATTR = "metaMissing"
 
     private val cacheFile: File
         get() = File(appCtx.filesDir, CACHE_FILE_NAME)
@@ -39,8 +41,11 @@ object CustRemoteBookshelf {
         return withContext(Dispatchers.IO) {
             if (!forceRefresh) {
                 readCacheBooks().takeIf { it.isNotEmpty() }?.let {
-                    AppLog.put("远程书籍使用本地缓存: ${it.size} 本")
-                    return@withContext it
+                    val hasMetaFlag = it.any { cacheBook -> cacheBook.origin.contains(META_MISSING_ATTR) }
+                    if (hasMetaFlag) {
+                        AppLog.put("远程书籍使用本地缓存: ${it.size} 本")
+                        return@withContext it
+                    }
                 }
             }
             val manager = remoteManager()
@@ -57,12 +62,17 @@ object CustRemoteBookshelf {
             val localByFileName = localBooks
                 .groupBy { normalizeFileName(it.originName) }
                 .mapValues { (_, list) -> list.maxByOrNull { it.durChapterTime } }
-            val books = remoteBooks.map { remote ->
+            val remoteItems = remoteBooks.map { remote ->
                 val shelfBook = toShelfBook(remote, manager.serverID)
                 val localBook = localByFileName[normalizeFileName(remote.filename)]
                     ?: localByNameAuthor[normalizeNameAuthor(shelfBook.name, shelfBook.author)]
-                mergeWithLocalBook(shelfBook, localBook)
+                val metaMissing = !hasLocalMetadata(localBook)
+                val mergedBook = mergeWithLocalBook(shelfBook, localBook)
+                markMetaMissing(mergedBook, metaMissing)
+                mergedBook
             }
+            val books = remoteItems.partition { it.isRemoteMetadataMissing() }
+                .let { (metaMissingBooks, normalBooks) -> metaMissingBooks + normalBooks }
             writeCacheBooks(books)
             AppLog.put("远程书籍刷新完成: ${books.size} 本")
             books
@@ -125,6 +135,20 @@ object CustRemoteBookshelf {
         remoteBook.durChapterTime = localBook.durChapterTime
         remoteBook.wordCount = localBook.wordCount
         return remoteBook
+    }
+
+    private fun hasLocalMetadata(localBook: Book?): Boolean {
+        localBook ?: return false
+        return !localBook.getDisplayCover().isNullOrBlank()
+                || !localBook.latestChapterTitle.isNullOrBlank()
+                || localBook.totalChapterNum > 0
+                || !localBook.getDisplayIntro().isNullOrBlank()
+    }
+
+    private fun markMetaMissing(book: Book, metaMissing: Boolean) {
+        val customUrl = CustomUrl(book.origin.removePrefix(BookType.webDavTag))
+            .putAttribute(META_MISSING_ATTR, metaMissing)
+        book.origin = BookType.webDavTag + customUrl.toString()
     }
 
     private fun normalizeFileName(fileName: String): String {

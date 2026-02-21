@@ -9,6 +9,7 @@ import io.legado.app.data.entities.Book
 import io.legado.app.databinding.ItemBookshelfGridBinding
 import io.legado.app.help.book.getBookTypeName
 import io.legado.app.help.book.isLocal
+import io.legado.app.help.book.isRemoteShelfNewBadge
 import io.legado.app.help.config.AppConfig
 import io.legado.app.utils.gone
 import io.legado.app.utils.visible
@@ -53,7 +54,11 @@ class BooksAdapterGrid(context: Context, private val callBack: CallBack) :
             binding.rlLoading.gone()
             if (AppConfig.showUnread) {
                 val unreadCount = item.getUnreadChapterNum()
-                if (unreadCount > 0) {
+                if (item.isRemoteShelfNewBadge()) {
+                    binding.cdUnread.visible()
+                    binding.tvUnread.text = "新"
+                    binding.newChapter.gone()
+                } else if (unreadCount > 0) {
                     binding.cdUnread.visible()
                     binding.tvUnread.text = unreadCount.toString()
                     if (AppConfig.showUnreadNew)

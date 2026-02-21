@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookGroup
+import io.legado.app.help.book.isRemoteShelfNewBadge
 
 abstract class BaseBooksAdapter<VH : RecyclerView.ViewHolder>(
     val context: Context,
@@ -43,7 +44,8 @@ abstract class BaseBooksAdapter<VH : RecyclerView.ViewHolder>(
                             oldItem.latestChapterTitle == newItem.latestChapterTitle &&
                             oldItem.lastCheckCount == newItem.lastCheckCount &&
                             oldItem.getDisplayCover() == newItem.getDisplayCover() &&
-                            oldItem.getUnreadChapterNum() == newItem.getUnreadChapterNum()
+                            oldItem.getUnreadChapterNum() == newItem.getUnreadChapterNum() &&
+                            oldItem.isRemoteShelfNewBadge() == newItem.isRemoteShelfNewBadge()
                 }
 
                 oldItem is BookGroup && newItem is BookGroup -> false
@@ -75,6 +77,7 @@ abstract class BaseBooksAdapter<VH : RecyclerView.ViewHolder>(
                         || oldItem.durChapterTime != newItem.durChapterTime
                         || oldItem.getUnreadChapterNum() != newItem.getUnreadChapterNum()
                         || oldItem.lastCheckCount != newItem.lastCheckCount
+                        || oldItem.isRemoteShelfNewBadge() != newItem.isRemoteShelfNewBadge()
                     ) {
                         bundle.putBoolean("refresh", true)
                     }
