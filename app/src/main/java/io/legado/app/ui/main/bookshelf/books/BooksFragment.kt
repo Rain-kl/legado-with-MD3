@@ -275,7 +275,7 @@ class BooksFragment() : BaseFragment(R.layout.fragment_books),
                 AppLog.put("远程书籍: 开始下拉刷新")
             }
             kotlin.runCatching {
-                CustRemoteBookshelf.listRemoteShelfBooks()
+                CustRemoteBookshelf.listRemoteShelfBooks(forceRefresh = fromUserRefresh)
             }.onSuccess { list ->
                 if (view == null) return@onSuccess
                 binding.emptyView.isGone = list.isNotEmpty()

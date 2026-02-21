@@ -12,10 +12,19 @@ import io.legado.app.model.analyzeRule.CustomUrl
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.model.remote.RemoteBook
 import io.legado.app.model.remote.RemoteBookWebDav
+import io.legado.app.utils.GSON
+import io.legado.app.utils.fromJsonArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import splitties.init.appCtx
+import java.io.File
 
 object CustRemoteBookshelf {
+
+    private const val CACHE_FILE_NAME = "remote_shelf_cache.json"
+
+    private val cacheFile: File
+        get() = File(appCtx.filesDir, CACHE_FILE_NAME)
 
     private suspend fun remoteManager(): RemoteBookWebDav {
         return withContext(Dispatchers.IO) {
@@ -26,8 +35,14 @@ object CustRemoteBookshelf {
         }
     }
 
-    suspend fun listRemoteShelfBooks(): List<Book> {
+    suspend fun listRemoteShelfBooks(forceRefresh: Boolean = false): List<Book> {
         return withContext(Dispatchers.IO) {
+            if (!forceRefresh) {
+                readCacheBooks().takeIf { it.isNotEmpty() }?.let {
+                    AppLog.put("远程书籍使用本地缓存: ${it.size} 本")
+                    return@withContext it
+                }
+            }
             val manager = remoteManager()
             AppLog.put("远程书籍刷新开始: ${manager.rootBookUrl}")
             val remoteBooks = manager.getRemoteBookList(manager.rootBookUrl)
@@ -35,7 +50,20 @@ object CustRemoteBookshelf {
                 .filter { !it.isDir }
                 .sortedByDescending { it.lastModify }
                 .toList()
-            val books = remoteBooks.map { toShelfBook(it, manager.serverID) }
+            val localBooks = appDb.bookDao.all
+            val localByNameAuthor = localBooks
+                .groupBy { normalizeNameAuthor(it.name, it.author) }
+                .mapValues { (_, list) -> list.maxByOrNull { it.durChapterTime } }
+            val localByFileName = localBooks
+                .groupBy { normalizeFileName(it.originName) }
+                .mapValues { (_, list) -> list.maxByOrNull { it.durChapterTime } }
+            val books = remoteBooks.map { remote ->
+                val shelfBook = toShelfBook(remote, manager.serverID)
+                val localBook = localByFileName[normalizeFileName(remote.filename)]
+                    ?: localByNameAuthor[normalizeNameAuthor(shelfBook.name, shelfBook.author)]
+                mergeWithLocalBook(shelfBook, localBook)
+            }
+            writeCacheBooks(books)
             AppLog.put("远程书籍刷新完成: ${books.size} 本")
             books
         }
@@ -79,5 +107,46 @@ object CustRemoteBookshelf {
             type = BookType.local or BookType.text,
             latestChapterTime = remoteBook.lastModify
         )
+    }
+
+    private fun mergeWithLocalBook(remoteBook: Book, localBook: Book?): Book {
+        if (localBook == null) return remoteBook
+        remoteBook.type = localBook.type
+        remoteBook.coverUrl = localBook.coverUrl
+        remoteBook.customCoverUrl = localBook.customCoverUrl
+        remoteBook.intro = localBook.intro
+        remoteBook.customIntro = localBook.customIntro
+        remoteBook.remark = localBook.remark
+        remoteBook.latestChapterTitle = localBook.latestChapterTitle
+        remoteBook.totalChapterNum = localBook.totalChapterNum
+        remoteBook.durChapterTitle = localBook.durChapterTitle
+        remoteBook.durChapterIndex = localBook.durChapterIndex
+        remoteBook.durChapterPos = localBook.durChapterPos
+        remoteBook.durChapterTime = localBook.durChapterTime
+        remoteBook.wordCount = localBook.wordCount
+        return remoteBook
+    }
+
+    private fun normalizeFileName(fileName: String): String {
+        return fileName.trim().lowercase()
+    }
+
+    private fun normalizeNameAuthor(name: String, author: String): String {
+        return "${name.trim().lowercase()}\u0000${author.trim().lowercase()}"
+    }
+
+    private fun readCacheBooks(): List<Book> {
+        return kotlin.runCatching {
+            if (!cacheFile.exists()) return emptyList()
+            GSON.fromJsonArray<Book>(cacheFile.readText()).getOrNull() ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    private fun writeCacheBooks(books: List<Book>) {
+        kotlin.runCatching {
+            cacheFile.writeText(GSON.toJson(books))
+        }.onFailure {
+            AppLog.put("写入远程书籍缓存失败\n${it.localizedMessage}", it)
+        }
     }
 }

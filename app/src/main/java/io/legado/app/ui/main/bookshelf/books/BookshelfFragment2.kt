@@ -337,7 +337,7 @@ class BookshelfFragment2() : BaseBookshelfFragment(R.layout.fragment_bookshelf2)
                 AppLog.put("远程书籍(折叠书架): 开始下拉刷新")
             }
             kotlin.runCatching {
-                CustRemoteBookshelf.listRemoteShelfBooks()
+                CustRemoteBookshelf.listRemoteShelfBooks(forceRefresh = fromUserRefresh)
             }.onSuccess { list ->
                 books = list
                 booksAdapter.updateItems()
