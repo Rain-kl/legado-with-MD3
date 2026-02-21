@@ -21,6 +21,9 @@ import io.legado.app.model.ReadBook
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.ui.config.readConfig.ReadConfig
 import io.legado.app.utils.moderation.config.ModerationConfig
+import io.legado.app.utils.moderation.cache.TocModerationCacheItem
+import io.legado.app.utils.moderation.cache.TocModerationCachePayload
+import io.legado.app.utils.moderation.cache.TocModerationCacheStore
 import io.legado.app.utils.moderation.core.ContentAnalyzer
 import io.legado.app.utils.moderation.core.TextFileReader
 import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
@@ -481,16 +484,25 @@ class TocViewModel(
 
     fun ensureModerationOnce() {
         if (_moderationState.value.hasRun || _moderationState.value.isRunning) return
-        runSafetyModerationByToc()
+        runSafetyModerationByToc(forceRefresh = false)
     }
 
-    fun runSafetyModerationByToc() {
+    fun runSafetyModerationByToc(forceRefresh: Boolean = false) {
         if (_moderationState.value.isRunning) return
         viewModelScope.launch(Dispatchers.IO) {
             val book = bookState.value ?: return@launch
+            if (!forceRefresh) {
+                TocModerationCacheStore.get(book.name, book.author)?.let { cached ->
+                    _moderationState.value = cached.toUiState()
+                    return@launch
+                }
+            }
+
             val chapters = appDb.bookChapterDao.getChapterList(book.bookUrl).filterNot { it.isVolume }
             if (chapters.isEmpty()) {
-                _moderationState.value = TocModerationState(hasRun = true)
+                val emptyState = TocModerationState(hasRun = true)
+                _moderationState.value = emptyState
+                TocModerationCacheStore.put(book.name, book.author, emptyState.toCachePayload())
                 return@launch
             }
 
@@ -551,7 +563,44 @@ class TocViewModel(
                 flaggedItems = flagged.sortedByDescending { it.score },
                 hasRun = true
             )
+            TocModerationCacheStore.put(
+                book.name,
+                book.author,
+                _moderationState.value.toCachePayload()
+            )
         }
+    }
+
+    private fun TocModerationCachePayload.toUiState(): TocModerationState {
+        return TocModerationState(
+            isRunning = false,
+            checkedChapters = checkedChapters,
+            skippedChapters = skippedChapters,
+            flaggedItems = flaggedItems.map {
+                TocModerationItemUi(
+                    chapterIndex = it.chapterIndex,
+                    chapterTitle = it.chapterTitle,
+                    score = it.score,
+                    flaggedLinesCount = it.flaggedLinesCount
+                )
+            },
+            hasRun = true
+        )
+    }
+
+    private fun TocModerationState.toCachePayload(): TocModerationCachePayload {
+        return TocModerationCachePayload(
+            checkedChapters = checkedChapters,
+            skippedChapters = skippedChapters,
+            flaggedItems = flaggedItems.map {
+                TocModerationCacheItem(
+                    chapterIndex = it.chapterIndex,
+                    chapterTitle = it.chapterTitle,
+                    score = it.score,
+                    flaggedLinesCount = it.flaggedLinesCount
+                )
+            }
+        )
     }
 
     fun updateBookmark(bookmark: Bookmark) =

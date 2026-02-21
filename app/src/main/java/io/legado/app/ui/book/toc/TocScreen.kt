@@ -404,7 +404,7 @@ fun TocScreen(
                             RoundDropdownMenuItem(
                                 text = "重新安全审查",
                                 onClick = {
-                                    viewModel.runSafetyModerationByToc()
+                                    viewModel.runSafetyModerationByToc(forceRefresh = true)
                                     dismiss()
                                 }
                             )
