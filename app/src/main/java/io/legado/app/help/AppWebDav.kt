@@ -119,16 +119,13 @@ object AppWebDav {
     }
 
     @Throws(WebDavException::class)
-    suspend fun restoreWebDav(
-        name: String,
-        mode: Restore.RestoreMode = Restore.RestoreMode.MERGE
-    ) {
+    suspend fun restoreWebDav(name: String) {
         authorization?.let {
             val webDav = WebDav(rootWebDavUrl + name, it)
             webDav.downloadTo(Backup.zipFilePath, true)
             FileUtils.delete(Backup.backupPath)
             ZipUtils.unZipToPath(File(Backup.zipFilePath), Backup.backupPath)
-            Restore.restoreLocked(Backup.backupPath, mode)
+            Restore.restoreLocked(Backup.backupPath)
         }
     }
 

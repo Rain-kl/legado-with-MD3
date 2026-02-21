@@ -1,7 +1,6 @@
 package io.legado.app.help.storage
 
 import android.content.Context
-import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
 import androidx.core.content.edit
 import androidx.documentfile.provider.DocumentFile
@@ -10,6 +9,7 @@ import io.legado.app.R
 import io.legado.app.constant.AppConst.androidId
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.PreferKey
+import io.legado.app.data.AppDatabase
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookGroup
@@ -70,16 +70,7 @@ object Restore {
 
     private const val TAG = "Restore"
 
-    enum class RestoreMode {
-        MERGE,
-        OVERWRITE
-    }
-
-    suspend fun restore(
-        context: Context,
-        uri: Uri,
-        mode: RestoreMode = RestoreMode.MERGE
-    ) {
+    suspend fun restore(context: Context, uri: Uri) {
         LogUtils.d(TAG, "开始恢复备份 uri:$uri")
         kotlin.runCatching {
             FileUtils.delete(Backup.backupPath)
@@ -95,7 +86,7 @@ object Restore {
             return
         }
         kotlin.runCatching {
-            restoreLocked(Backup.backupPath, mode)
+            restoreLocked(Backup.backupPath)
             LocalConfig.lastBackup = System.currentTimeMillis()
         }.onFailure {
             appCtx.toastOnUi("恢复备份出错\n${it.localizedMessage}")
@@ -103,14 +94,15 @@ object Restore {
         }
     }
 
-    suspend fun restoreLocked(path: String, mode: RestoreMode = RestoreMode.MERGE) {
+    suspend fun restoreLocked(path: String) {
         mutex.withLock {
-            restore(path, mode)
+            restore(path)
         }
     }
 
-    private suspend fun restore(path: String, mode: RestoreMode) {
+    private suspend fun restore(path: String) {
         val aes = BackupAES()
+        clearTablesAndInitPresetData()
         fileToListT<Book>(path, "bookshelf.json")?.let {
             it.forEach { book ->
                 book.upType()
@@ -119,49 +111,21 @@ object Restore {
                 .forEach { book ->
                     book.coverUrl = LocalBook.getCoverPath(book)
                 }
-            if (mode == RestoreMode.OVERWRITE) {
-                appDb.bookDao.clear()
-                if (it.isNotEmpty()) {
-                    appDb.bookDao.insert(*it.toTypedArray())
-                }
-            } else {
-                val newBooks = arrayListOf<Book>()
-                it.forEach { book ->
-                    if (appDb.bookDao.has(book.bookUrl)) {
-                        try {
-                            appDb.bookDao.update(book)
-                        } catch (_: SQLiteConstraintException) {
-                            appDb.bookDao.insert(book)
-                        }
-                    } else {
-                        newBooks.add(book)
-                    }
-                }
-                if (newBooks.isNotEmpty()) {
-                    appDb.bookDao.insert(*newBooks.toTypedArray())
-                }
+            if (it.isNotEmpty()) {
+                appDb.bookDao.insert(*it.toTypedArray())
             }
         }
         fileToListT<Bookmark>(path, "bookmark.json")?.let {
             appDb.bookmarkDao.insert(*it.toTypedArray())
         }
         fileToListT<BookGroup>(path, "bookGroup.json")?.let {
-            if (mode == RestoreMode.OVERWRITE) {
-                appDb.bookGroupDao.clear()
-            }
             appDb.bookGroupDao.insert(*it.toTypedArray())
         }
         fileToListT<BookSource>(path, "bookSource.json")?.let {
-            if (mode == RestoreMode.OVERWRITE) {
-                appDb.bookSourceDao.clear()
-            }
             appDb.bookSourceDao.insert(*it.toTypedArray())
         } ?: run {
             val bookSourceFile = File(path, "bookSource.json")
             if (bookSourceFile.exists()) {
-                if (mode == RestoreMode.OVERWRITE) {
-                    appDb.bookSourceDao.clear()
-                }
                 val json = bookSourceFile.readText()
                 ImportOldData.importOldSource(json)
             }
@@ -179,9 +143,6 @@ object Restore {
             appDb.searchKeywordDao.insert(*it.toTypedArray())
         }
         fileToListT<RuleSub>(path, "sourceSub.json")?.let {
-            if (mode == RestoreMode.OVERWRITE) {
-                appDb.ruleSubDao.clear()
-            }
             appDb.ruleSubDao.insert(*it.toTypedArray())
         }
         fileToListT<TxtTocRule>(path, "txtTocRule.json")?.let {
@@ -349,6 +310,39 @@ object Restore {
             appCtx.toastOnUi("$fileName\n读取文件出错\n${e.localizedMessage}")
         }
         return null
+    }
+
+    private fun clearTablesAndInitPresetData() {
+        val db = appDb.openHelper.writableDatabase
+        db.beginTransaction()
+        try {
+            val tablesToClear = arrayOf(
+                "books",
+                "bookmarks",
+                "book_groups",
+                "book_sources",
+                "rssSources",
+                "rssStars",
+                "replace_rules",
+                "search_keywords",
+                "ruleSubs",
+                "txtTocRules",
+                "httpTTS",
+                "dictRules",
+                "keyboardAssists",
+                "readRecord",
+                "readRecordDetail",
+                "readRecordSession",
+                "servers"
+            )
+            tablesToClear.forEach { table ->
+                db.execSQL("delete from $table")
+            }
+            AppDatabase.applyPresetData(db)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
 }
