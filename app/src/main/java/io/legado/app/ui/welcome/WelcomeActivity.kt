@@ -8,8 +8,7 @@ import androidx.viewpager2.widget.ViewPager2
 import io.legado.app.base.BaseActivity
 import io.legado.app.databinding.ActivityWelcomeBinding
 import io.legado.app.help.config.LocalConfig
-import io.legado.app.ui.main.MainActivity
-import io.legado.app.utils.startActivity
+import io.legado.app.utils.restart
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 
 class WelcomeActivity : BaseActivity<ActivityWelcomeBinding>() {
@@ -95,7 +94,6 @@ class WelcomeActivity : BaseActivity<ActivityWelcomeBinding>() {
     }
 
     private fun finishSetup() {
-        startActivity<MainActivity>()
-        finish()
+        restart()
     }
 }
