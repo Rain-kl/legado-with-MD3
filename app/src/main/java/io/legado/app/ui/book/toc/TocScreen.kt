@@ -274,8 +274,9 @@ fun TocScreen(
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage == 2) {
+    LaunchedEffect(book?.bookUrl) {
+        // book 首次加载完成后触发一次后台安全审查，避免 book 尚未就绪导致未执行
+        if (book != null) {
             viewModel.ensureModerationOnce()
         }
     }
@@ -646,6 +647,10 @@ fun ChapterListContent(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val collapsedVolumes by viewModel.collapsedVolumes.collectAsStateWithLifecycle()
+    val moderationState by viewModel.moderationState.collectAsStateWithLifecycle()
+    val nsfwChapterIndices = remember(moderationState.flaggedItems) {
+        moderationState.flaggedItems.mapTo(hashSetOf()) { it.chapterIndex }
+    }
 
     FastScrollLazyColumn(
         state = listState,
@@ -674,6 +679,7 @@ fun ChapterListContent(
                             .animateItem()
                             .fillMaxWidth(),
                         item = uiItem,
+                        isNsfw = nsfwChapterIndices.contains(uiItem.id),
                         showWordCount = viewModel.showWordCount,
                         onClick = {
                             if (state.selectedIds.isNotEmpty())
@@ -699,6 +705,7 @@ fun ChapterListContent(
 fun ChapterItem(
     modifier: Modifier = Modifier,
     item: TocItemUi,
+    isNsfw: Boolean = false,
     showWordCount: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -743,7 +750,30 @@ fun ChapterItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isNsfw) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            shape = MaterialTheme.shapes.extraSmall,
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                            ),
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Text(
+                                text = "",
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+
                     if (item.isVip && !item.isPay) {
                         Icon(
                             imageVector = Icons.Default.Lock,
@@ -757,6 +787,7 @@ fun ChapterItem(
 
                     Text(
                         text = item.title,
+                        modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMediumEmphasized.copy(fontWeight = FontWeight.Medium),
                         color = textColor,
                         maxLines = 1,
