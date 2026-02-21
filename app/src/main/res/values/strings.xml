@@ -1397,4 +1397,12 @@
     <string name="show_swipe_animation">启用滑动时动画</string>
     <string name="click_image_way">点击图片行为</string>
     <string name="show_web_log">输出日志</string>
+    <string name="bookshelf_safety_review">安全审查</string>
+    <string name="bookshelf_safety_review_empty">未发现不安全的本地书籍</string>
+    <string name="bookshelf_safety_review_progress">正在审查本地书籍 %1$d / %2$d · 命中 %3$d 本</string>
+    <string name="bookshelf_safety_review_done">审查完成 · 共审查 %1$d 本地书籍，命中 %2$d 本</string>
+    <string name="bookshelf_safety_review_no_local">没有可审查的本地书籍</string>
+    <string name="bookshelf_safety_review_select_book">请先选择书籍</string>
+    <string name="bookshelf_safety_review_first_hit">首个命中章节：%1$s</string>
+    <string name="bookshelf_safety_review_hit_count">命中章节：%1$d</string>
 </resources>

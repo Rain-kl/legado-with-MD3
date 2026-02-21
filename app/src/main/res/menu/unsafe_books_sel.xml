@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item
+        android:id="@+id/menu_add_to_group"
+        android:title="@string/add_to_group" />
+
+    <item
+        android:id="@+id/menu_check_selected_interval"
+        android:title="@string/check_selected_interval" />
+
+</menu>

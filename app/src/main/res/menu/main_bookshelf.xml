@@ -71,6 +71,12 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/menu_bookshelf_safety_review"
+        android:icon="@drawable/ic_bug_report"
+        android:title="@string/bookshelf_safety_review"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/menu_log"
         android:icon="@drawable/ic_cfg_about"
         android:title="@string/log"

@@ -256,6 +256,11 @@
             android:name=".ui.book.manage.BookshelfManageActivity"
             android:enableOnBackInvokedCallback="true"
             android:launchMode="singleTop" />
+        <!-- 书架安全审查 -->
+        <activity
+            android:name=".ui.main.bookshelf.BookshelfSafetyReviewActivity"
+            android:enableOnBackInvokedCallback="true"
+            android:launchMode="singleTop" />
         <!-- 书源调试 -->
         <activity
             android:name=".ui.book.source.debug.BookSourceDebugActivity"
