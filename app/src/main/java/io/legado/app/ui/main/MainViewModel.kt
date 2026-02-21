@@ -1,6 +1,8 @@
 package io.legado.app.ui.main
 
 import android.app.Application
+import android.net.Uri
+import androidx.core.net.toUri
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import androidx.recyclerview.widget.RecyclerView.RecycledViewPool
@@ -16,6 +18,8 @@ import io.legado.app.help.AppWebDav
 import io.legado.app.help.DefaultData
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.addType
+import io.legado.app.help.book.canSafelyRebindTo
+import io.legado.app.help.book.getLocalUri
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.book.isUpError
 import io.legado.app.help.book.removeType
@@ -25,6 +29,8 @@ import io.legado.app.model.CacheBook
 import io.legado.app.model.ReadBook
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.service.CacheBookService
+import io.legado.app.utils.inputStream
+import io.legado.app.utils.isUri
 import io.legado.app.utils.onEachParallel
 import io.legado.app.utils.postEvent
 import kotlinx.coroutines.Job
@@ -40,11 +46,34 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.LinkedList
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import kotlin.math.min
 
 class MainViewModel(application: Application) : BaseViewModel(application) {
+    data class RefreshBooksResult(
+        val total: Int,
+        val tocQueued: Int,
+        val localTotal: Int,
+        val localFoundByBookUrl: Int,
+        val localRecoveredByPathLookup: Int,
+        val localUpdatedByNameAuthor: Int,
+        val localNoMatch: Int,
+        val localUnchanged: Int,
+        val localFailed: Int
+    )
+
+    private data class LocalRefreshStats(
+        val total: Int,
+        var foundByBookUrl: Int = 0,
+        var recoveredByPathLookup: Int = 0,
+        var updatedByNameAuthor: Int = 0,
+        var noMatch: Int = 0,
+        var unchanged: Int = 0,
+        var failed: Int = 0
+    )
+
     private var threadCount = AppConfig.threadCount
     private var poolSize = min(threadCount, AppConst.MAX_THREAD)
     private var upTocPool = Executors.newFixedThreadPool(poolSize).asCoroutineDispatcher()
@@ -53,6 +82,7 @@ class MainViewModel(application: Application) : BaseViewModel(application) {
     val onUpBooksLiveData = MutableLiveData<Int>()
     private var upTocJob: Job? = null
     private var cacheBookJob: Job? = null
+    val refreshBooksResultLiveData = MutableLiveData<RefreshBooksResult?>()
     val booksListRecycledViewPool = RecycledViewPool().apply {
         setMaxRecycledViews(0, 30)
     }
@@ -95,12 +125,92 @@ class MainViewModel(application: Application) : BaseViewModel(application) {
 
     fun upToc(books: List<Book>) {
         execute(context = upTocPool) {
-            books.filter {
-                !it.isLocal && it.canUpdate
-            }.let {
-                addToWaitUp(it)
+            val webBooks = books.filter { !it.isLocal && it.canUpdate }
+            val localBooks = books.filter { it.isLocal }
+            addToWaitUp(webBooks)
+            val localStats = refreshLocalBookUrl(localBooks)
+            refreshBooksResultLiveData.postValue(
+                RefreshBooksResult(
+                    total = books.size,
+                    tocQueued = webBooks.size,
+                    localTotal = localStats.total,
+                    localFoundByBookUrl = localStats.foundByBookUrl,
+                    localRecoveredByPathLookup = localStats.recoveredByPathLookup,
+                    localUpdatedByNameAuthor = localStats.updatedByNameAuthor,
+                    localNoMatch = localStats.noMatch,
+                    localUnchanged = localStats.unchanged,
+                    localFailed = localStats.failed
+                )
+            )
+        }
+    }
+
+    private fun refreshLocalBookUrl(localBooks: List<Book>): LocalRefreshStats {
+        val stats = LocalRefreshStats(total = localBooks.size)
+        localBooks.forEach { book ->
+            kotlin.runCatching {
+                val oldBook = appDb.bookDao.getBook(book.bookUrl) ?: return@runCatching
+                if (canAccessLocalBookUri(oldBook.bookUrl)) {
+                    stats.foundByBookUrl += 1
+                    return@runCatching
+                }
+                if (tryRecoverByBuiltInPathLookup(oldBook)) {
+                    stats.recoveredByPathLookup += 1
+                    return@runCatching
+                }
+                val candidate = findUniqueLocalCandidateByNameAuthor(oldBook)
+                if (candidate == null) {
+                    stats.noMatch += 1
+                    return@runCatching
+                }
+                if (!oldBook.canSafelyRebindTo(candidate.bookUrl)) {
+                    stats.unchanged += 1
+                    return@runCatching
+                }
+                appDb.runInTransaction {
+                    val dbOldBook = appDb.bookDao.getBook(oldBook.bookUrl) ?: return@runInTransaction
+                    val newBook = dbOldBook.copy(bookUrl = candidate.bookUrl)
+                    appDb.bookDao.replace(dbOldBook, newBook)
+                    BookHelp.updateCacheFolder(dbOldBook, newBook)
+                }
+                stats.updatedByNameAuthor += 1
+            }.onFailure {
+                AppLog.put("刷新本地书籍bookUrl失败\n${book.name}\n${it.localizedMessage}", it)
+                stats.failed += 1
             }
         }
+        return stats
+    }
+
+    private fun findUniqueLocalCandidateByNameAuthor(book: Book): Book? {
+        if (book.name.isBlank() || book.author.isBlank()) {
+            return null
+        }
+        val candidates = appDb.bookDao.getBooksByNameAuthor(book.name, book.author)
+            .asSequence()
+            .filter { it.isLocal }
+            .filter { it.bookUrl != book.bookUrl }
+            .distinctBy { it.bookUrl }
+            .filter { canAccessLocalBookUri(it.bookUrl) }
+            .toList()
+        return if (candidates.size == 1) candidates.first() else null
+    }
+
+    private fun tryRecoverByBuiltInPathLookup(book: Book): Boolean {
+        return kotlin.runCatching {
+            // Reuse existing local-book relocation flow (default/import path lookup).
+            book.getLocalUri()
+            canAccessLocalBookUri(book.bookUrl)
+        }.getOrDefault(false)
+    }
+
+    private fun canAccessLocalBookUri(bookUrl: String): Boolean {
+        val uri = if (bookUrl.isUri()) {
+            bookUrl.toUri()
+        } else {
+            Uri.fromFile(File(bookUrl))
+        }
+        return uri.inputStream(context).getOrNull()?.use { true } == true
     }
 
     @Synchronized

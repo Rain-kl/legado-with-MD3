@@ -346,6 +346,17 @@
     <string name="pt_show_all_find">顯示所有發現</string>
     <string name="ps_show_all_find">關閉則只顯示勾選源的發現</string>
     <string name="update_toc">更新目錄</string>
+    <string name="update_books">更新書籍</string>
+    <string name="refresh_books_result_title">刷新結果</string>
+    <string name="refresh_books_result_summary">總計：%1$d
+加入目錄更新佇列：%2$d
+掃描本地書籍：%3$d
+原始 bookUrl 可用：%4$d
+按保存路徑自動查找並恢復：%5$d
+按書名+作者唯一匹配並更新：%6$d
+未匹配到唯一候選：%7$d
+未變更（衝突）：%8$d
+刷新失敗（異常）：%9$d</string>
     <string name="txt_toc_rule">TXT 目錄規則</string>
     <string name="set_charset">設置編碼</string>
     <string name="swap_sort">倒序-順序</string>

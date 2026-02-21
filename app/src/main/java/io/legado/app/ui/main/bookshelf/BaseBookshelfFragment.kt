@@ -147,6 +147,26 @@ abstract class BaseBookshelfFragment(layoutId: Int) : VMBaseFragment<BookshelfVi
                 waitDialog.setText("添加中... ($count)")
             }
         }
+        activityViewModel.refreshBooksResultLiveData.observe(viewLifecycleOwner) { result ->
+            result ?: return@observe
+            val message = getString(
+                R.string.refresh_books_result_summary,
+                result.total,
+                result.tocQueued,
+                result.localTotal,
+                result.localFoundByBookUrl,
+                result.localRecoveredByPathLookup,
+                result.localUpdatedByNameAuthor,
+                result.localNoMatch,
+                result.localUnchanged,
+                result.localFailed
+            )
+            alert(titleResource = R.string.refresh_books_result_title) {
+                setMessage(message)
+                okButton()
+            }
+            activityViewModel.refreshBooksResultLiveData.value = null
+        }
     }
 
     @SuppressLint("InflateParams")
