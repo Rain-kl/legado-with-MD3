@@ -131,7 +131,7 @@ fun TocScreen(
     val book by viewModel.bookState.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val pagerState = rememberPagerState { 2 }
+    val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
 
     val listState = rememberLazyListState()
@@ -158,6 +158,7 @@ fun TocScreen(
         when (pagerState.currentPage) {
             0 -> book?.durChapterTitle
             1 -> "书签管理"
+            2 -> "目录安全审查"
             else -> null
         }
     }
@@ -273,6 +274,12 @@ fun TocScreen(
         }
     }
 
+    LaunchedEffect(pagerState.currentPage) {
+        if (pagerState.currentPage == 2) {
+            viewModel.ensureModerationOnce()
+        }
+    }
+
     BackHandler(enabled = isSelectionMode) {
         viewModel.clearSelection()
     }
@@ -366,7 +373,7 @@ fun TocScreen(
                             }
                         }
 
-                        else -> {
+                        1 -> {
                             RoundDropdownMenuItem(
                                 text = "导出书签为JSON",
                                 onClick = {
@@ -388,6 +395,16 @@ fun TocScreen(
                                     ).format(Date())
                                     val initialName = "${book?.name ?: "书签"}_$dateFormat.md"
                                     exportLauncher.launch(initialName)
+                                    dismiss()
+                                }
+                            )
+                        }
+
+                        else -> {
+                            RoundDropdownMenuItem(
+                                text = "重新安全审查",
+                                onClick = {
+                                    viewModel.runSafetyModerationByToc()
                                     dismiss()
                                 }
                             )
@@ -422,6 +439,17 @@ fun TocScreen(
                                 text = {
                                     Text(
                                         text = "书签",
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            )
+                            Tab(
+                                selected = pagerState.currentPage == 2,
+                                onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
+                                text = {
+                                    Text(
+                                        text = "审查",
                                         modifier = Modifier.padding(horizontal = 16.dp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -567,6 +595,12 @@ fun TocScreen(
                             onBookmarkClick = { bookmark ->
                                 editingBookmark = bookmark
                             },
+                            contentPadding = PaddingValues(bottom = if (isSelectionMode) 80.dp else 0.dp)
+                        )
+
+                        2 -> ModerationListContent(
+                            viewModel = viewModel,
+                            onChapterClick = onChapterClick,
                             contentPadding = PaddingValues(bottom = if (isSelectionMode) 80.dp else 0.dp)
                         )
                     }
@@ -813,6 +847,98 @@ fun BookmarkListContent(
                         onBookmarkLongClick(bookmark.chapterIndex, bookmark.chapterPos)
                     }
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun ModerationListContent(
+    viewModel: TocViewModel,
+    onChapterClick: (Int) -> Unit,
+    contentPadding: PaddingValues
+) {
+    val moderationState by viewModel.moderationState.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+
+    if (moderationState.isRunning) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                Text(
+                    text = "正在按目录审查章节内容...",
+                    modifier = Modifier.padding(top = 12.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    if (!moderationState.hasRun) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            EmptyMessageView(message = "尚未执行安全审查")
+        }
+        return
+    }
+
+    if (moderationState.flaggedItems.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            EmptyMessageView(
+                message = "未发现风险章节\n已审查 ${moderationState.checkedChapters} 章，跳过 ${moderationState.skippedChapters} 章"
+            )
+        }
+        return
+    }
+
+    FastScrollLazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding
+    ) {
+        item(key = "moderation-summary") {
+            Text(
+                text = "命中 ${moderationState.flaggedItems.size} 章 · 已审查 ${moderationState.checkedChapters} 章 · 跳过 ${moderationState.skippedChapters} 章",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        items(
+            items = moderationState.flaggedItems,
+            key = { it.chapterIndex }
+        ) { item ->
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateItem()
+                    .combinedClickable(onClick = { onChapterClick(item.chapterIndex) }),
+                color = Color.Transparent
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Text(
+                        text = item.chapterTitle,
+                        style = MaterialTheme.typography.bodyMediumEmphasized.copy(fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "章节索引 ${item.chapterIndex} · 得分 %.2f · 命中行数 ${item.flaggedLinesCount}".format(item.score),
+                        modifier = Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

@@ -646,6 +646,9 @@
     <string name="add_to_text_context_menu_t">文字操作顯示搜尋</string>
     <string name="record_log">記錄日誌</string>
     <string name="log">日誌</string>
+    <string name="text_moderation">內容審查</string>
+    <string name="text_moderation_running">正在分析內容安全性…</string>
+    <string name="text_moderation_report_title">內容審查報告</string>
     <string name="chinese_converter">中文簡繁體轉換</string>
     <string name="change_icon_error">圖示為向量圖示，Android8.0以前不支援</string>
     <string name="aloud_config">朗讀設定</string>

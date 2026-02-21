@@ -76,6 +76,7 @@ import io.legado.app.ui.file.HandleFileContract
 import io.legado.app.ui.login.SourceLoginActivity
 import io.legado.app.ui.widget.dialog.PhotoDialog
 import io.legado.app.ui.widget.dialog.VariableDialog
+import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.ui.widget.dialog.WaitDialog
 import io.legado.app.utils.ConvertUtils
 import io.legado.app.utils.FileDoc
@@ -229,6 +230,9 @@ class BookInfoActivity :
         viewModel.bookData.observe(this) { showBook(it) }
         viewModel.chapterListData.observe(this) { upLoading(false, it) }
         viewModel.waitDialogData.observe(this) { upWaitDialogStatus(it) }
+        viewModel.moderationResult.observe(this) { result ->
+            showModerationResult(result)
+        }
         viewModel.initData(intent)
         initViewEvent()
     }
@@ -315,6 +319,7 @@ class BookInfoActivity :
 
             R.id.menu_clear_cache -> viewModel.clearCache()
             R.id.menu_log -> showDialogFragment<AppLogDialog>()
+            R.id.menu_text_moderation -> viewModel.runTextModeration()
             R.id.menu_split_long_chapter -> {
                 upLoading(true)
                 viewModel.getBook()?.let {
@@ -1104,6 +1109,65 @@ class BookInfoActivity :
                 viewModel.addToBookshelf {
                     upTvBookshelf()
                 }
+            }
+        }
+    }
+
+    private fun showModerationResult(result: io.legado.app.utils.moderation.model.AnalysisResult) {
+        val content = buildString {
+            appendLine("## 基本信息")
+            appendLine("- **总评分**: %.2f".format(result.totalScore))
+            appendLine("- **章节数**: ${result.totalChapters}")
+            appendLine("- **敏感章节**: ${result.flaggedChapters} (${result.flaggedRatePercent})")
+            appendLine("- **总字数**: ${result.totalCharactersFormatted}")
+            if (result.summary.isNotBlank()) {
+                appendLine()
+                appendLine("## 摘要")
+                appendLine(escapeMarkdownText(result.summary))
+            }
+            if (result.details.isNotEmpty()) {
+                appendLine()
+                appendLine("## 敏感章节详情")
+                for (detail in result.details) {
+                    appendLine("### ${escapeMarkdownText(detail.title)}")
+                    appendLine("- 得分: %.2f".format(detail.score))
+                    appendLine("- 敏感行数: ${detail.flaggedLines.size}")
+                    if (detail.flaggedLines.isNotEmpty()) {
+                        appendLine("- 示例:")
+                        detail.flaggedLines.take(3).forEach { line ->
+                            val sample = line.take(50) + if (line.length > 50) "..." else ""
+                            appendLine("  - ${escapeMarkdownText(sample)}")
+                        }
+                    }
+                    appendLine()
+                }
+            }
+        }
+        showDialogFragment(
+            TextDialog(
+                getString(R.string.text_moderation_report_title),
+                content,
+                TextDialog.Mode.MD
+            )
+        )
+    }
+
+    /**
+     * Escape user-provided text before putting it into markdown template,
+     * preventing markdown/html injection in moderation report.
+     */
+    private fun escapeMarkdownText(text: String): String {
+        val escapedHtml = text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        val markdownSpecialChars = "\\`*_{}[]()#+-.!|~"
+        return buildString(escapedHtml.length) {
+            escapedHtml.forEach { ch ->
+                if (markdownSpecialChars.indexOf(ch) >= 0) {
+                    append('\\')
+                }
+                append(ch)
             }
         }
     }

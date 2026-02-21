@@ -82,4 +82,9 @@
         android:title="@string/log"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/menu_text_moderation"
+        android:title="@string/text_moderation"
+        app:showAsAction="never" />
+
 </menu>

@@ -41,6 +41,8 @@ import io.legado.app.utils.UrlUtil
 import io.legado.app.utils.isContentScheme
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.toastOnUi
+import io.legado.app.utils.moderation.TextModerationService
+import io.legado.app.utils.moderation.model.AnalysisResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 
@@ -53,6 +55,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
     private var changeSourceCoroutine: Coroutine<*>? = null
     val waitDialogData = MutableLiveData<Boolean>()
     val actionLive = MutableLiveData<String>()
+    val moderationResult = MutableLiveData<AnalysisResult>()
 
     fun initData(intent: Intent) {
         execute {
@@ -510,6 +513,42 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             appDb.bookDao.getBook(it.bookUrl)?.let { book ->
                 bookData.postValue(book)
             }
+        }
+    }
+
+    /**
+     * 对书籍内容进行安全审查
+     */
+    fun runTextModeration() {
+        val book = bookData.value ?: return
+        val chapters = chapterListData.value
+        if (chapters.isNullOrEmpty()) {
+            context.toastOnUi("章节列表为空，无法审查")
+            return
+        }
+        execute(executeContext = IO) {
+            waitDialogData.postValue(true)
+            val allText = StringBuilder()
+            for (chapter in chapters) {
+                val content = BookHelp.getContent(book, chapter)
+                if (!content.isNullOrBlank()) {
+                    allText.appendLine(chapter.getDisplayTitle(emptyList(), false))
+                    allText.appendLine(content)
+                }
+            }
+            val text = allText.toString()
+            if (text.isBlank()) {
+                throw NoStackTraceException("书籍内容为空，无法审查")
+            }
+            val service = TextModerationService.create()
+            service.analyzeText(text)
+        }.onSuccess {
+            moderationResult.postValue(it)
+        }.onError {
+            AppLog.put("内容审查失败\n${it.localizedMessage}", it)
+            context.toastOnUi("内容审查失败: ${it.localizedMessage}")
+        }.onFinally {
+            waitDialogData.postValue(false)
         }
     }
 

@@ -653,6 +653,9 @@
     <string name="add_to_text_context_menu_t">Text operation display Search</string>
     <string name="record_log">Record log</string>
     <string name="log">Log</string>
+    <string name="text_moderation">Content Moderation</string>
+    <string name="text_moderation_running">Analyzing content safety…</string>
+    <string name="text_moderation_report_title">Content Moderation Report</string>
     <string name="chinese_converter">Simplified conversion</string>
     <string name="change_icon_error">The icon is a vector icon, which was not supported before Android 8.0</string>
     <string name="aloud_config">Speech settings</string>

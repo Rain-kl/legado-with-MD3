@@ -20,6 +20,9 @@ import io.legado.app.model.CacheBook
 import io.legado.app.model.ReadBook
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.ui.config.readConfig.ReadConfig
+import io.legado.app.utils.moderation.config.ModerationConfig
+import io.legado.app.utils.moderation.core.ContentAnalyzer
+import io.legado.app.utils.moderation.core.TextFileReader
 import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.rules.RuleActionState
 import io.legado.app.ui.widget.components.rules.SelectableItem
@@ -69,6 +72,22 @@ data class TocBookmarkItemUi(
     val raw: Bookmark
 )
 
+@Immutable
+data class TocModerationItemUi(
+    val chapterIndex: Int,
+    val chapterTitle: String,
+    val score: Double,
+    val flaggedLinesCount: Int
+)
+
+data class TocModerationState(
+    val isRunning: Boolean = false,
+    val checkedChapters: Int = 0,
+    val skippedChapters: Int = 0,
+    val flaggedItems: List<TocModerationItemUi> = emptyList(),
+    val hasRun: Boolean = false
+)
+
 data class TocActionState(
     override val items: List<TocItemUi> = emptyList(),
     override val selectedIds: Set<Int> = emptySet(),
@@ -107,6 +126,7 @@ class TocViewModel(
     application,
     initialState = TocActionState()
 ) {
+    private val analyzer by lazy { ContentAnalyzer(ModerationConfig.defaults()) }
 
     private val bookUrlFlow = savedStateHandle.getStateFlow<String?>("bookUrl", null)
     val bookState = bookUrlFlow
@@ -120,6 +140,8 @@ class TocViewModel(
 
     private val _collapsedVolumes = MutableStateFlow<Set<Int>>(emptySet())
     val collapsedVolumes = _collapsedVolumes.asStateFlow()
+    private val _moderationState = MutableStateFlow(TocModerationState())
+    val moderationState: StateFlow<TocModerationState> = _moderationState.asStateFlow()
 
     val downloadSummary: StateFlow<String> =
         CacheBook.downloadSummaryFlow
@@ -454,6 +476,81 @@ class TocViewModel(
             context.toastOnUi("保存成功")
         } catch (e: Exception) {
             context.toastOnUi("保存失败: ${e.message}")
+        }
+    }
+
+    fun ensureModerationOnce() {
+        if (_moderationState.value.hasRun || _moderationState.value.isRunning) return
+        runSafetyModerationByToc()
+    }
+
+    fun runSafetyModerationByToc() {
+        if (_moderationState.value.isRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = bookState.value ?: return@launch
+            val chapters = appDb.bookChapterDao.getChapterList(book.bookUrl).filterNot { it.isVolume }
+            if (chapters.isEmpty()) {
+                _moderationState.value = TocModerationState(hasRun = true)
+                return@launch
+            }
+
+            _moderationState.value = TocModerationState(
+                isRunning = true,
+                hasRun = true
+            )
+
+            val contentProcessor = ContentProcessor.get(book)
+            val flagged = mutableListOf<TocModerationItemUi>()
+            var checked = 0
+            var skipped = 0
+
+            chapters.forEach { chapter ->
+                val rawContent = BookHelp.getContent(book, chapter)
+                if (rawContent.isNullOrBlank()) {
+                    skipped++
+                    return@forEach
+                }
+
+                val processedContent = contentProcessor
+                    .getContent(book, chapter, rawContent, includeTitle = false)
+                    .toString()
+                    .trim()
+                if (processedContent.isBlank()) {
+                    skipped++
+                    return@forEach
+                }
+
+                val lines = TextFileReader.readLinesFromString(processedContent)
+                if (lines.isEmpty()) {
+                    skipped++
+                    return@forEach
+                }
+
+                val chapterLines = buildList(lines.size + 1) {
+                    add(chapter.title)
+                    addAll(lines)
+                }
+                val result = analyzer.analyze(linkedMapOf(chapter.index to chapterLines))
+                result.details.firstOrNull()?.let { detail ->
+                    flagged.add(
+                        TocModerationItemUi(
+                            chapterIndex = chapter.index,
+                            chapterTitle = chapter.title,
+                            score = detail.score,
+                            flaggedLinesCount = detail.flaggedLines.size
+                        )
+                    )
+                }
+                checked++
+            }
+
+            _moderationState.value = TocModerationState(
+                isRunning = false,
+                checkedChapters = checked,
+                skippedChapters = skipped,
+                flaggedItems = flagged.sortedByDescending { it.score },
+                hasRun = true
+            )
         }
     }
 
