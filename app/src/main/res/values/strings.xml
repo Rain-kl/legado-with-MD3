@@ -356,15 +356,7 @@
     <string name="update_toc">Update chapters</string>
     <string name="update_books">Update books</string>
     <string name="refresh_books_result_title">Refresh result</string>
-    <string name="refresh_books_result_summary">Total: %1$d
-Queued for chapter update: %2$d
-Local books scanned: %3$d
-Local URI valid by original bookUrl: %4$d
-Recovered by built-in path lookup: %5$d
-Local bookUrl updated by unique Name+Author: %6$d
-No unique candidate matched: %7$d
-Local unchanged (conflict): %8$d
-Local refresh failed (exception): %9$d</string>
+    <string name="refresh_books_result_summary">Total: %1$d\nQueued for chapter update: %2$d\nLocal books scanned: %3$d\nLocal URI valid by original bookUrl: %4$d\nRecovered by built-in path lookup: %5$d\nLocal bookUrl updated by unique Name+Author: %6$d\nNo unique candidate matched: %7$d\nLocal unchanged (conflict): %8$d\nLocal refresh failed (exception): %9$d</string>
     <string name="txt_toc_rule">Txt Catalog Rule</string>
     <string name="select_section_export">Choose some chapters to be exported</string>
     <string name="set_charset">Text encoding</string>

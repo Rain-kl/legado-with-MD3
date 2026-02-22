@@ -353,15 +353,7 @@
     <string name="update_toc">更新目录</string>
     <string name="update_books">更新书籍</string>
     <string name="refresh_books_result_title">刷新结果</string>
-    <string name="refresh_books_result_summary">总计：%1$d
-加入目录更新队列：%2$d
-扫描本地书籍：%3$d
-原始 bookUrl 可用：%4$d
-按保存路径自动查找并恢复：%5$d
-按书名+作者唯一匹配并更新：%6$d
-未匹配到唯一候选：%7$d
-未变更（冲突）：%8$d
-刷新失败（异常）：%9$d</string>
+    <string name="refresh_books_result_summary">总计：%1$d\n加入目录更新队列：%2$d\n扫描本地书籍：%3$d\n原始 bookUrl 可用：%4$d\n按保存路径自动查找并恢复：%5$d\n按书名+作者唯一匹配并更新：%6$d\n未匹配到唯一候选：%7$d\n未变更（冲突）：%8$d\n刷新失败（异常）：%9$d</string>
     <string name="txt_toc_rule">TXT 目录规则</string>
     <string name="select_section_export">选择待导出章节</string>
     <string name="set_charset">设置编码</string>
