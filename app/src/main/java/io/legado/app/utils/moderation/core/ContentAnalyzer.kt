@@ -5,8 +5,13 @@ import io.legado.app.utils.moderation.model.AnalysisResult
 import io.legado.app.utils.moderation.model.ChapterAnalysis
 import io.legado.app.utils.moderation.model.ModerationLevel
 import io.legado.app.utils.moderation.pattern.ModerationPatterns
+import java.util.EnumMap
 import java.util.LinkedHashMap
-import kotlin.collections.iterator
+import java.util.stream.Collectors
+import kotlin.math.ln
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 data class ChapterQuickScore(
     val score: Double,
@@ -14,13 +19,45 @@ data class ChapterQuickScore(
     val isFlagged: Boolean
 )
 
+private data class ScanStats(
+    val cleanedLength: Long,
+    val levelPhraseHits: Map<ModerationLevel, MutableMap<String, Int>>,
+    val levelTotalHits: IntArray
+)
+
+private data class ScoreMetrics(
+    val baseRawScore: Double,
+    val diversityFactor: Double,
+    val rawScore: Double,
+    val density: Double,
+    val finalScore: Double,
+    val totalMatches: Int
+)
+
+private data class FlaggedParagraph(
+    val level: ModerationLevel,
+    val lineIndex: Int,
+    val text: String
+)
+
+private data class ChapterComputation(
+    val key: Int,
+    val chapterChars: Long,
+    val scan: ScanStats,
+    val chapterScore: Double,
+    val detail: ChapterAnalysis?
+)
+
 /**
  * 内容分析器 —— 对已拆分的章节进行敏感内容评分。
  *
- * 评分规则：
- * - 每行按三个级别的正则模式匹配，加权计分
- * - 行得分 >= lineScoreThreshold 时纳入章节计分（halved）
- * - 章节得分 >= chapterScoreThreshold 时标记为敏感章节
+ * 评分规则（密度模型）：
+ * - 按四个级别正则统计命中次数，按 1/3/7/15 非对称加权得出基础分
+ * - 上下文门控：L2 需满足 L0+L1 最低命中；L3 需满足 L0+L1+L2 最低命中
+ * - 同一短语重复命中使用几何衰减；不同短语数量触发多样性增益
+ * - 进行长度归一化：density = rawScore * (1000 / textLength)
+ * - 非线性压缩：finalScore = min(100, 6.5 * sqrt(density))
+ * - 总评分 = 所有敏感章节分数总和 * 系数 y(x)，其中 x=敏感章节占比
  *
  * 线程安全：实例无可变状态，可在多线程间安全共享。
  */
@@ -41,35 +78,27 @@ class ContentAnalyzer(private val config: ModerationConfig) {
             return emptyResult()
         }
 
-        var totalScore = 0.0
-        var flaggedChapters = 0
+        val summary = extractSummaryFromChapters(chapters)
+        val computations = computeChapters(chapters)
+
         var totalCharacters = 0L
-        var summary = ""
+        var flaggedChapters = 0
+        var flaggedChaptersScoreSum = 0.0
         val details = mutableListOf<ChapterAnalysis>()
 
-        for ((key, chapterLines) in chapters) {
-            // 提取摘要
-            if (key == 0 && chapterLines.isNotEmpty()) {
-                val firstLine = chapterLines[0]
-                if (firstLine.startsWith(SUMMARY_PREFIX)) {
-                    summary = extractSummary(chapterLines)
-                }
-            }
-
-            // 分析单章节
-            val chapterResult = analyzeChapter(chapterLines)
-            totalCharacters += chapterLines.sumOf { it.length.toLong() }
-            totalScore += chapterResult.score
-
-            if (chapterResult.isFlagged) {
+        for (computation in computations.sortedBy { it.key }) {
+            totalCharacters += computation.chapterChars
+            if (computation.detail != null) {
                 flaggedChapters++
-                details.add(chapterResult)
+                flaggedChaptersScoreSum += computation.chapterScore
+                details.add(computation.detail)
             }
         }
 
         val totalChaps = chapters.size
         val flaggedRate = if (totalChaps > 0) flaggedChapters.toDouble() / totalChaps else 0.0
-        totalScore = Math.round(totalScore * 100.0) / 100.0
+        val multiplier = scoreMultiplierByFlaggedRate(flaggedRate)
+        val totalScore = round2(flaggedChaptersScoreSum * multiplier)
 
         return AnalysisResult(
             totalScore = totalScore,
@@ -84,31 +113,6 @@ class ContentAnalyzer(private val config: ModerationConfig) {
 
     // ── 内部方法 ─────────────────────────────────────────────
 
-    /** 分析单个章节 */
-    private fun analyzeChapter(lines: List<String>): ChapterAnalysis {
-        if (lines.isEmpty()) {
-            return ChapterAnalysis(title = "", score = 0.0, flaggedLines = emptyList())
-        }
-
-        val title = lines[0]
-        var chapterScore = 0.0
-        val flaggedLines = mutableListOf<String>()
-
-        for (line in lines) {
-            val lineScore = scoreLine(line)
-            if (lineScore >= config.lineScoreThreshold) {
-                chapterScore += lineScore / 2.0
-                flaggedLines.add(line)
-            }
-        }
-
-        return ChapterAnalysis(
-            title = title,
-            score = chapterScore,
-            flaggedLines = flaggedLines.toList()
-        )
-    }
-
     /**
      * 轻量章节评分接口：仅返回分数与命中行数，不构建明细列表。
      * 用于性能敏感场景（例如目录页快速审查）。
@@ -122,48 +126,175 @@ class ContentAnalyzer(private val config: ModerationConfig) {
             )
         }
 
-        var chapterScore = 0.0
-        var flaggedLinesCount = 0
-        for (line in lines) {
-            val lineScore = scoreLine(line)
-            if (lineScore >= config.lineScoreThreshold) {
-                chapterScore += lineScore / 2.0
-                flaggedLinesCount++
-            }
+        val chapterText = buildString {
+            for (line in lines) append(line)
         }
+        val metrics = scoreFromScan(scanText(chapterText))
+        val chapterScore = round2(metrics.finalScore)
         return ChapterQuickScore(
             score = chapterScore,
-            flaggedLinesCount = flaggedLinesCount,
+            flaggedLinesCount = metrics.totalMatches,
             isFlagged = chapterScore >= config.chapterScoreThreshold
         )
     }
 
     /**
-     * 对单行内容进行敏感度评分。
+     * 扫描文本，得到各级别短语命中统计。
      *
-     * 先去除干扰字符，再依次匹配三个级别的正则并加权计分。
-     * 使用 Set 去重同一级别的重复匹配项。
-     *
-     * @param line 原始行
-     * @return 该行的敏感度得分
+     * 该步骤仅负责“找出命中项”，不做打分。
      */
-    private fun scoreLine(line: String): Double {
-        val cleaned = ModerationPatterns.stripNoise(line)
-        var score = 0.0
-
-        for (level in ModerationLevel.entries) {
-            val pattern = ModerationPatterns.getPattern(level)
-            val matcher = pattern.matcher(cleaned)
-            val uniqueMatches = mutableSetOf<String>()
-
-            while (matcher.find()) {
-                uniqueMatches.add(matcher.group())
-            }
-
-            score += level.weight * uniqueMatches.size
+    private fun scanText(text: String): ScanStats {
+        val cleaned = ModerationPatterns.stripNoise(text)
+        if (cleaned.isBlank()) {
+            return emptyScanStats()
         }
 
-        return score
+        val levelPhraseHits = EnumMap<ModerationLevel, MutableMap<String, Int>>(
+            ModerationLevel::class.java
+        )
+        val levelTotalHits = IntArray(ModerationLevel.entries.size)
+
+        for (level in ModerationLevel.entries) {
+            val matcher = ModerationPatterns.getPattern(level).matcher(cleaned)
+            val phraseCounter = mutableMapOf<String, Int>()
+            while (matcher.find()) {
+                val phrase = matcher.group()
+                phraseCounter[phrase] = (phraseCounter[phrase] ?: 0) + 1
+            }
+            levelPhraseHits[level] = phraseCounter
+            levelTotalHits[level.ordinal] = phraseCounter.values.sum()
+        }
+
+        return ScanStats(
+            cleanedLength = cleaned.length.toLong(),
+            levelPhraseHits = levelPhraseHits,
+            levelTotalHits = levelTotalHits
+        )
+    }
+
+    /**
+     * 从扫描结果计算风险分数。
+     *
+     */
+    private fun scoreFromScan(scan: ScanStats): ScoreMetrics {
+        if (scan.cleanedLength <= 0L) {
+            return ScoreMetrics(
+                baseRawScore = 0.0,
+                diversityFactor = 1.0,
+                rawScore = 0.0,
+                density = 0.0,
+                finalScore = 0.0,
+                totalMatches = 0
+            )
+        }
+
+        var baseRawScore = 0.0
+        var totalMatches = 0
+        var weightedUniquePhrases = 0
+
+        val l0Hits = scan.levelTotalHits[ModerationLevel.MILD.ordinal]
+        val l1Hits = scan.levelTotalHits[ModerationLevel.MODERATE.ordinal]
+        val l2Hits = scan.levelTotalHits[ModerationLevel.SEVERE.ordinal]
+        val l2Enabled = l0Hits + l1Hits >= config.minL0L1SupportForL2
+        val l3Enabled = l0Hits + l1Hits + l2Hits >= config.minL0ToL2SupportForL3
+
+        for (level in ModerationLevel.entries) {
+            val enabled = when (level) {
+                ModerationLevel.SEVERE -> l2Enabled
+                ModerationLevel.CRITICAL -> l3Enabled
+                else -> true
+            }
+            if (!enabled) continue
+
+            val phraseCounter = scan.levelPhraseHits[level] ?: continue
+            if (phraseCounter.isEmpty()) continue
+            weightedUniquePhrases += phraseCounter.size * level.weight
+            for ((_, count) in phraseCounter) {
+                totalMatches += count
+                baseRawScore += level.weight * decayedCount(count)
+            }
+        }
+
+        val diversityFactor = diversityFactor(weightedUniquePhrases)
+        val rawScore = baseRawScore * diversityFactor
+        val density = rawScore * (config.densityBaseChars / scan.cleanedLength.coerceAtLeast(1L).toDouble())
+        val finalScore = min(config.maxScore, config.compressionScale * sqrt(density.coerceAtLeast(0.0)))
+
+        return ScoreMetrics(
+            baseRawScore = baseRawScore,
+            diversityFactor = diversityFactor,
+            rawScore = rawScore,
+            density = density,
+            finalScore = finalScore,
+            totalMatches = totalMatches
+        )
+    }
+
+    private fun buildChapterAnalysis(
+        lines: List<String>,
+        score: Double,
+        chapterScan: ScanStats
+    ): ChapterAnalysis {
+        val title = lines.firstOrNull().orEmpty()
+        val flaggedParagraphs = collectFlaggedParagraphs(
+            lines = lines,
+            chapterScan = chapterScan,
+            limit = config.explainTopPhrasesLimit
+        )
+        return ChapterAnalysis(
+            title = title,
+            score = score,
+            flaggedLines = flaggedParagraphs,
+            flaggedThreshold = config.chapterScoreThreshold
+        )
+    }
+
+    private fun computeChapters(chapters: LinkedHashMap<Int, List<String>>): List<ChapterComputation> {
+        val entries = chapters.entries.toList()
+        val shouldParallel =
+            config.parallelChapterAnalysis &&
+                    entries.size >= config.parallelChapterMinCount &&
+                    Runtime.getRuntime().availableProcessors() > 1
+
+        return if (shouldParallel) {
+            entries.parallelStream()
+                .map { computeSingleChapter(it.key, it.value) }
+                .collect(Collectors.toList())
+        } else {
+            entries.map { computeSingleChapter(it.key, it.value) }
+        }
+    }
+
+    private fun computeSingleChapter(key: Int, lines: List<String>): ChapterComputation {
+        var chapterChars = 0L
+        val chapterText = buildString {
+            for (line in lines) {
+                append(line)
+                chapterChars += line.length
+            }
+        }
+
+        val scan = scanText(chapterText)
+        val chapterScore = round2(scoreFromScan(scan).finalScore)
+        val detail = if (chapterScore >= config.chapterScoreThreshold) {
+            buildChapterAnalysis(lines = lines, score = chapterScore, chapterScan = scan)
+        } else {
+            null
+        }
+
+        return ChapterComputation(
+            key = key,
+            chapterChars = chapterChars,
+            scan = scan,
+            chapterScore = chapterScore,
+            detail = detail
+        )
+    }
+
+    private fun extractSummaryFromChapters(chapters: LinkedHashMap<Int, List<String>>): String {
+        val chapter0 = chapters[0] ?: return ""
+        val firstLine = chapter0.firstOrNull() ?: return ""
+        return if (firstLine.startsWith(SUMMARY_PREFIX)) extractSummary(chapter0) else ""
     }
 
     /** 从第 0 章节提取摘要文本 */
@@ -183,4 +314,105 @@ class ContentAnalyzer(private val config: ModerationConfig) {
         summary = "",
         details = emptyList()
     )
+
+    private fun emptyScanStats(): ScanStats =
+        ScanStats(
+            cleanedLength = 0L,
+            levelPhraseHits = EnumMap<ModerationLevel, MutableMap<String, Int>>(
+                ModerationLevel::class.java
+            ).apply {
+                for (level in ModerationLevel.entries) {
+                    put(level, mutableMapOf())
+                }
+            },
+            levelTotalHits = IntArray(ModerationLevel.entries.size)
+        )
+
+    private fun round2(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
+
+    private fun decayedCount(count: Int): Double {
+        if (count <= 0) return 0.0
+        val decay = config.repetitionDecay.coerceIn(0.0, 1.0)
+        if (decay == 1.0) return count.toDouble()
+        // 几何衰减：1 + d + d^2 + ... + d^(n-1)
+        return (1.0 - decay.pow(count.toDouble())) / (1.0 - decay)
+    }
+
+    private fun diversityFactor(weightedUniquePhrases: Int): Double {
+        if (weightedUniquePhrases <= 0) return 1.0
+        val boost = 1.0 + config.diversityBoostCoeff * ln(1.0 + weightedUniquePhrases.toDouble())
+        return boost.coerceIn(1.0, config.maxDiversityBoostFactor)
+    }
+
+    /**
+     * 总评分系数 y(x)，x 为敏感章节占比：
+     * - [0,0.1]      : 0.6
+     * - (0.1,0.6]    : 0.6 + 0.3 * log_a(1 + (a-1)t), t=(x-0.1)/0.5
+     * - (0.6,1]      : 0.9 + 0.35 * u^b, u=(x-0.6)/0.4
+     */
+    private fun scoreMultiplierByFlaggedRate(flaggedRate: Double): Double {
+        val x = flaggedRate.coerceIn(0.0, 1.0)
+        val a = config.scoreMultiplierLogBaseA.coerceAtLeast(1.000001)
+        val b = config.scoreMultiplierPowB.coerceAtLeast(1.000001)
+
+        return when {
+            x <= 0.1 -> 0.6
+            x <= 0.6 -> {
+                val t = (x - 0.1) / 0.5
+                val value = 1.0 + (a - 1.0) * t
+                val logA = ln(value) / ln(a)
+                0.6 + 0.3 * logA
+            }
+            else -> {
+                val u = (x - 0.6) / 0.4
+                0.9 + 0.35 * u.pow(b)
+            }
+        }
+    }
+
+    private fun collectFlaggedParagraphs(
+        lines: List<String>,
+        chapterScan: ScanStats,
+        limit: Int
+    ): List<String> {
+        if (lines.isEmpty()) return emptyList()
+
+        val l0Hits = chapterScan.levelTotalHits[ModerationLevel.MILD.ordinal]
+        val l1Hits = chapterScan.levelTotalHits[ModerationLevel.MODERATE.ordinal]
+        val l2Hits = chapterScan.levelTotalHits[ModerationLevel.SEVERE.ordinal]
+        val l2Enabled = l0Hits + l1Hits >= config.minL0L1SupportForL2
+        val l3Enabled = l0Hits + l1Hits + l2Hits >= config.minL0ToL2SupportForL3
+
+        val flagged = mutableListOf<FlaggedParagraph>()
+        for ((lineIndex, line) in lines.withIndex()) {
+            val cleanedLine = ModerationPatterns.stripNoise(line)
+            if (cleanedLine.isBlank()) continue
+
+            val highestLevel = ModerationLevel.entries
+                .asReversed()
+                .firstOrNull { level ->
+                    val enabled = when (level) {
+                        ModerationLevel.SEVERE -> l2Enabled
+                        ModerationLevel.CRITICAL -> l3Enabled
+                        else -> true
+                    }
+                    enabled && ModerationPatterns.getPattern(level).matcher(cleanedLine).find()
+                } ?: continue
+
+            flagged.add(
+                FlaggedParagraph(
+                    level = highestLevel,
+                    lineIndex = lineIndex,
+                    text = line
+                )
+            )
+        }
+
+        val sorted = flagged.sortedWith(
+            compareByDescending<FlaggedParagraph> { it.level.ordinal }
+                .thenBy { it.lineIndex }
+        )
+        val limited = if (limit > 0) sorted.take(limit) else sorted
+        return limited.map { it.text }
+    }
 }

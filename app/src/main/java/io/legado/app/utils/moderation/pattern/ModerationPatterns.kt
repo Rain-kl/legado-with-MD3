@@ -2,8 +2,7 @@ package io.legado.app.utils.moderation.pattern
 
 import io.legado.app.utils.moderation.model.ModerationLevel
 import java.nio.charset.StandardCharsets
-import java.util.Base64
-import java.util.EnumMap
+import java.util.*
 import java.util.regex.Pattern
 
 /**
@@ -18,14 +17,17 @@ object ModerationPatterns {
 
     // ── Base64 编码的正则表达式（避免源码出现明文敏感词） ────────
 
-    private const val MILD_B64 =
-        "KOi1pOijuHzpq5jmva585o+S5YWlfOaPkua7oXzmiZPlvIAuezAsMTB95Y+M6IW/fOWkqua3seS6hnzmub/mt4vmt4t86buP5ruL5ruLfOm7j+iFu3zmva7ng6185rGX5rSl5rSlfOa5v+eDrXzmmbbojrnnmoTmtrLkvZN85rm/5ryJ5ryJfOW/q+aEn3zntKcuezAuNn3ng61854OtLnswLjZ957SnfOWkueW+ly57MCwzfee0p3zmhI/kubHmg4Xov7d85aG15b6XfOaKvemAgXzmk43miJF85bGB55y8fOWkhOS6hnzlpKfohb/lhoXkvqd85L2gLnswLDV956Gs5LqGfOa2pua7kea2snzmtqbmu5HliYJ85ram5ruR5rK5fOWBmueIsXzlj6PmsLR86I+K6IqxfOiHgOmDqHzmkpLlsL985o+S6L+b5p2lfOWIhuW8gC57MCwzfeS7lueahOWPjOiFv3zllL7mtrJ86KOkLnsxLDEwfeino+W8gHzkuIsuezAsOH3oo6TlrZB85pGH5Yqo552A6IWwKQ=="
+    private const val L0 =
+        "KOWwv3zlkbvlkJ985aWX5byEfOW/q+aEn3zmrLLmnJt85oSP5Lmx5oOF6L+3fOa9rueDrXzmsZfmtKXmtKV85rm/54OtfOm7j+iFu3zpu4/mu4vmu4t85rm/5ryJ5ryJfOaZtuiOueeahOa2suS9k3znvKDnu7V85aiH576efOWQnuWQkHznmb3mtYp85Y+j5rC0fOa5v+WQu3zllL7mtrJ85aSn6IW/5YaF5L6nfOWWmOaBr3zlqIfllph85L2O5ZCffOi/t+emu3zlkbzlkLguezAsM33mgKXkv4N86Lqr5L2TLnswLDN95Y+R54OrfOWPkeeDrXzohb/ova985ZCO5YWlfOWJjeWFpXzoiJR85b+D6LezLnswLDN95Yqg6YCffOWUh+eToy57MCwzfeW+ruW8oHzouqvkvZMuezAsM33lj5Hova986L2v57u157u1fOWoh+WQn3zovbvpoqR85bCP5YWE5byffOWGheijpHzmiprmkbh85oCl5L+DLnswLDMwfemipOaKlik="
 
-    private const val MODERATE_B64 =
-        "KOaItOWll3znlJ/mrpbohZR855m95rWK55qE5ray5L2TfOa4qeeDreeahOeUrOmBk3zopoHlsITkuoZ85omp5bygfOaPkuWHuuawtHzkubMuezEsNn3mtrJ85omL5oyHLnswLDEwfeS9k+WGheaOoue0onzmir3mj5LnnYB85o+S5ZyoLnswLDh96YeM6Z2ifOengeWkhHzmg7PlsIR85bCE5LqG6L+b5Y67fOWwhOS6huWHuuadpXzot6jotrR85omT5qGpfOiiq+aPkig/IeWIgCl85Lqk6YWNfOWwhOWIsC57MCw4fei6q+S9k+mHjHzmsqHlhaUuezDvvIw4fei6q+S9k+mHjHzkuIrkuIvlpZflvIR86IeA55OjfOiEseaOiS57MCw2feijpOWtkHznp4HlpIR85pON5byA5LqGfOmhtuW8hHzmk43kuobov5vljrt85o6w5byALnswLDV96IW/KQ=="
+    private const val L1 =
+        "KOi1pOijuHzmtqbmu5F85YGa54ixfOe0py57MCw2feeDrXzng60uezAsNn3ntKd85aS55b6XLnswLDN957SnfOaKvemAgXzmir3liqh85L2gLnswLDV956Gs5LqGfOaJk+W8gC57MCwxMH3ohb985oqs6LW3LnswLDV96IW/fOWIhuW8gC57MCwzfeS7lueahOiFv3zoo6QuezEsMTB96Kej5byAfOS4iy57MCw4feijpOWtkHzpobYuezAsM33ov5vljrt85pGH5Yqo552A6IWwfOiHgOmDqHzoh4Dnk6N854ix5oqafOS6suWQu3zmt7HlkLt86L275ZKsfOaPieaNj3zlj4zohb/poqTmipZ86Lqr5L2T5oq95pCQfOWQruWQuHznvKDkvY9856Oo6LmtfOiCjOiCpC57MCwzfeebuOS6snzooaPooasuezAsNn3op6N85pyNLnswLDZ95ruR6JC9fOiEseWIsC57MCw2feiFsHzkuIrooaMuezAsNn3mjoDotbd86KOk5a2QLnswLDZ96KSq5YiwfOWVquWVqnzmjIflsJYuezAsOH3muLjotbB86IWw6IKi54uC5omtfOWWt+a2jHzmuqLmu6F854GM5ruhfOiIjOWwli57MCw4feiIlOi/h3zovbvovbsuezAsNn3llYPlkqx86IW/LnswLDZ957yg5LiKfOi6q+S9ky57MCw2fee0p+i0tCk="
 
-    private const val SEVERE_B64 =
-        "KOenmOeptHznqbTpgZN8KD88Ieearinlm4rooot86IKJ56m0fOeptOWGhXzlsI8uezAsMX3nqbR85ZCO56m0fOeptOWPo3zohqPlhoV86IKb6ZeofOiCiea0nnzogpvlj6N86IeA57ydfOiCoOiCiXzogqDpgZN857K+5rayfOWwhOeyvnzpmLTojI586IKJ546v5Y+jfOeOieafsXznjonojI586IKJLnswLDF95qOSfOm4oeW3tHzmgKflmah8KD88IeS5jCnpvp8uezAsMX3lpLR85Lmz5bCWfOWJjeWIl+iFunzkubPlpLR85Lya6Zi0fOmprOecvHzmva7lkLl85ZOD5Y+jfOmYtOWbinzlpLHnpoF85bC/5LqG5Ye65p2lfOWwv+mBk3zlrZDlrqt85Lqk5aq+fOS6pOWQiHzogo986KKr5pONfOa3q+iNoXzmt6vmsLR85rer6IWUfOa3q+aAgXzmt6vmtrJ857K+5rC0fOaPki57MCwxfeWkqua3sXzpobblvpflpb3mt7F85pON5byEfOWwhOWHui57MCwxMH3nm73mtYp85bCE5ZyoLnswLDV96IS4LnswLDJ95LiKfOWPo+S6pHzkvaDlpKrntKfkuoZ85bCE5ZyoLnswLDEwfeWYtOmHjHzlsITlnKguezAsNX3lsYHogqEuezAsMn3kuIp85Zyo5LuW55qE6Lqr5L2T6YeMfOaTjeS6hui/m+WOu3zlvKDlvIDlkI7pnaJ85bCE5ZyoLnsxLDV96IW5fOi6q+S9k+mHjOaKveaPkik="
+    private const val L2 =
+        "KOmrmOa9rnzmj5LlhaV85o+S5ruhfOWkqua3seS6hnzmj5Lov5vmnaV85rexLnswLDN95oy65YWlfOaKveaPkuedgHzmj5LlnKguezAsOH3ph4zpnaJ85LiK5LiL5aWX5byEfOmhtuW8hHzmk43lvIDkuoZ85pON5LqG6L+b5Y67fOaOsOW8gC57MCw1feiFv3zot6rotrR85omT5qGpfOiiq+aPkig/IeWIgCl85Lqk6YWNfOWwhOS6hnzopoHlsITkuoZ85oOz5bCEfOWwhOS6hui/m+WOu3zlsITkuoblh7rmnaV85oi05aWXfOaJqeW8oHzmj5Llh7rmsLR85rWq5rC0fOmqmuawtHzlsYHnnLx86I+K6IqxfOaTjeaIkXzmkpLlsL985omL5oyHLnswLDEwfeS9k+WGheaOoue0onzmuKnng63nmoTnlKzpgZN855Sf5q6W6IWUfOeZvea1ii57MCw1fea2suS9k3znp4HlpIR857K+5rC0fOeMm+aPknzni6Dmj5J85aSn5Yqb5oq96YCBfOW/q+mAn+aKveaPknznvJPmhaLnoJTno6h85pW05qC55rKh5YWlfOmqkeS5mHzkuIrkuIvotbfkvI985YmN5ZCO6IC45YqofOiFv+mrmOS4vnzouqvkvZPlr7nmkp586IKJ5L2T5ouN5omTfOWSleWVvnzlmZfmu4t86IKJ5Ye75aOwfOa5v+a7kXzmva7llrd85rer5Y+rfOa1quWPq3zpqprlj6sp"
+
+    private const val L3 =
+        "KOenmOeptHznqbTpgZN8KD88Ieearinlm4rooot86IKJ56m0fOeptOWGhXzlsI8uezAsMX3nqbR85ZCO56m0fOeptOWPo3zohqPlhoV86IKb6ZeofOiCiea0nnzogpvlj6N86IeA57ydfOiCoOiCiXzogqDpgZN857K+5rayfOWwhOeyvnzpmLTojI586IKJ546v5Y+jfOeOieafsXznjonojI586IKJLnswLDF95qOSfOm4oeW3tHzmgKflmah8KD88IeS5jCnpvp8uezAsMX3lpLR85Lmz5bCWfOWJjeWIl+iFunzkubPlpLR85Lya6Zi0fOmprOecvHzmva7lkLl86ZOD5Y+jfOmYtOWbinzlpLHnpoF85bC/5LqG5Ye65p2lfOWwv+mBk3zlrZDlrqt85Lqk5aq+fOS6pOWQiHzogo986KKr5pONfOa3q+iNoXzmt6vmsLR85rer56m0fOa3q+eXknzmt6vmsYF85rer6IWUfOa3q+aAgXzmt6vmtrJ85o+SLnswLDF95aSq5rexfOmhtuW+l+Wlvea3sXzmk43lvIR85bCE5Ye6LnswLDEwfeeZvea1inzlsITlnKguezAsNX3ohLguezAsMn3kuIp85Y+j5LqkfOS9oOWkque0p+S6hnzlsITlnKguezAsMTB95Zi06YeMfOWwhOWcqC57MCw1feWxgeiCoS57MCwyfeS4inzlsITliLAuezAsOH3ouqvkvZPph4x85rKh5YWlLnswLDh96Lqr5L2T6YeMfOW8oOW8gOWQjumdonzlsITlnKguezEsNX3ohbl86Lqr5L2T6YeM5oq95o+SfOmYtOWUh3zpmLTokoJ86b6f5aS0fOWNteibi3zpqprnqbR85rWq56m0fOi0seeptHzlq6nnqbR85bGEfOmqmuWxhHzmtZPnsr585YaF5bCEfOiCieiMjnzpmLPlhbd85YuD6LW3fOiPiuiVvnzlkI7luq186IKg5aOBfOW5sueptCk="
 
     /** 用于预处理行内容：去除干扰标点和符号 */
     private val NOISE_STRIP_PATTERN = Pattern.compile("[，、｀\\-| @#￥%…&（）—]")
@@ -37,9 +39,10 @@ object ModerationPatterns {
     private val compiledPatterns: Map<ModerationLevel, Pattern> = EnumMap<ModerationLevel, Pattern>(
         ModerationLevel::class.java
     ).apply {
-        put(ModerationLevel.MILD, compileFromBase64(MILD_B64))
-        put(ModerationLevel.MODERATE, compileFromBase64(MODERATE_B64))
-        put(ModerationLevel.SEVERE, compileFromBase64(SEVERE_B64))
+        put(ModerationLevel.MILD, compileFromBase64(L0))
+        put(ModerationLevel.MODERATE, compileFromBase64(L1))
+        put(ModerationLevel.SEVERE, compileFromBase64(L2))
+        put(ModerationLevel.CRITICAL, compileFromBase64(L3))
     }
 
     /**
