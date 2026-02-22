@@ -3,12 +3,13 @@ package io.legado.app.ui.main.bookshelf
 import android.app.Application
 import androidx.lifecycle.viewModelScope
 import io.legado.app.base.BaseViewModel
+import io.legado.app.constant.AppLog
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
-import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.isLocal
-import io.legado.app.utils.moderation.config.ModerationConfig
-import io.legado.app.utils.moderation.core.ContentAnalyzer
+import io.legado.app.help.book.isLocalTxt
+import io.legado.app.model.localBook.LocalBook
+import io.legado.app.utils.moderation.TextModerationService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -19,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 data class UnsafeBookItem(
     val book: Book,
@@ -35,10 +38,10 @@ data class SafetyReviewProgress(
 
 class BookshelfSafetyReviewViewModel(application: Application) : BaseViewModel(application) {
 
-    private val analyzer by lazy { ContentAnalyzer(ModerationConfig.defaults()) }
+    private val moderationService by lazy { TextModerationService.create() }
     private val dispatcher by lazy {
         Dispatchers.Default.limitedParallelism(
-            Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+            Runtime.getRuntime().availableProcessors().coerceIn(2, 12)
         )
     }
 
@@ -51,11 +54,26 @@ class BookshelfSafetyReviewViewModel(application: Application) : BaseViewModel(a
     var scanJob: Job? = null
         private set
 
+    private enum class SkipReason {
+        UNSUPPORTED_TYPE,
+        EMPTY_CONTENT
+    }
+
+    private data class ScanOutcome(
+        val unsafeItem: UnsafeBookItem? = null,
+        val skipReason: SkipReason? = null
+    )
+
     fun startSafetyReview() {
         if (_progress.value.running) return
         scanJob?.cancel()
         scanJob = viewModelScope.launch(Dispatchers.IO) {
             val localBooks = appDb.bookDao.all.filter { it.isLocal }
+            AppLog.put(
+                "书架安全审查开始: localBooks=${localBooks.size}, cores=${
+                    Runtime.getRuntime().availableProcessors()
+                }"
+            )
             if (localBooks.isEmpty()) {
                 _unsafeBooks.value = emptyList()
                 _progress.value = SafetyReviewProgress(
@@ -64,6 +82,7 @@ class BookshelfSafetyReviewViewModel(application: Application) : BaseViewModel(a
                     processedBooks = 0,
                     unsafeBooks = 0
                 )
+                AppLog.put("书架安全审查结束: 没有可审查的本地书籍")
                 return@launch
             }
 
@@ -75,10 +94,43 @@ class BookshelfSafetyReviewViewModel(application: Application) : BaseViewModel(a
                 unsafeBooks = 0
             )
 
+            val unsupportedTypeCount = AtomicInteger(0)
+            val emptyContentCount = AtomicInteger(0)
+            val exceptionCount = AtomicInteger(0)
+            val exceptionSamples = ConcurrentLinkedQueue<String>()
+            val skipSamples = ConcurrentLinkedQueue<String>()
+
             val unsafe = coroutineScope {
                 localBooks.map { book ->
                     async(dispatcher) {
-                        val result = scanSingleBook(book)
+                        val outcome = kotlin.runCatching {
+                            scanSingleBook(book)
+                        }.getOrElse {
+                            exceptionCount.incrementAndGet()
+                            if (exceptionSamples.size < 10) {
+                                exceptionSamples.add("${book.name}(${book.author}): ${it.localizedMessage}")
+                            }
+                            AppLog.put("书架安全审查单书异常: ${book.name}(${book.author})", it)
+                            null
+                        }
+                        when (outcome?.skipReason) {
+                            SkipReason.UNSUPPORTED_TYPE -> {
+                                unsupportedTypeCount.incrementAndGet()
+                                if (skipSamples.size < 10) {
+                                    skipSamples.add("UNSUPPORTED_TYPE: ${book.name}(${book.author})")
+                                }
+                            }
+
+                            SkipReason.EMPTY_CONTENT -> {
+                                emptyContentCount.incrementAndGet()
+                                if (skipSamples.size < 10) {
+                                    skipSamples.add("EMPTY_CONTENT: ${book.name}(${book.author})")
+                                }
+                            }
+
+                            null -> {}
+                        }
+                        val result = outcome?.unsafeItem
                         _progress.update { old ->
                             old.copy(
                                 processedBooks = old.processedBooks + 1,
@@ -92,6 +144,19 @@ class BookshelfSafetyReviewViewModel(application: Application) : BaseViewModel(a
 
             _unsafeBooks.value = unsafe
             _progress.update { old -> old.copy(running = false) }
+            AppLog.put(
+                buildString {
+                    append("书架安全审查完成: total=${localBooks.size}, unsafe=${unsafe.size}, ")
+                    append("unsupportedType=${unsupportedTypeCount.get()}, emptyContent=${emptyContentCount.get()}, ")
+                    append("exceptions=${exceptionCount.get()}")
+                }
+            )
+            if (skipSamples.isNotEmpty()) {
+                AppLog.put("书架安全审查跳过样本:\n${skipSamples.joinToString("\n")}")
+            }
+            if (exceptionSamples.isNotEmpty()) {
+                AppLog.put("书架安全审查异常样本:\n${exceptionSamples.joinToString("\n")}")
+            }
         }
     }
 
@@ -103,41 +168,34 @@ class BookshelfSafetyReviewViewModel(application: Application) : BaseViewModel(a
         }
     }
 
-    private fun scanSingleBook(book: Book): UnsafeBookItem? {
-        val chapters = appDb.bookChapterDao.getChapterList(book.bookUrl).filterNot { it.isVolume }
-        if (chapters.isEmpty()) return null
-
-        var flaggedCount = 0
-        var firstFlaggedTitle = ""
-        for (chapter in chapters) {
-            val raw = BookHelp.getContent(book, chapter) ?: continue
-            if (raw.isBlank()) continue
-
-            val lines = raw.lineSequence()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .toList()
-            if (lines.isEmpty()) continue
-
-            val quick = analyzer.analyzeChapterQuick(lines)
-            if (quick.isFlagged) {
-                flaggedCount++
-                if (firstFlaggedTitle.isEmpty()) {
-                    firstFlaggedTitle = chapter.title
-                }
-                // For bookshelf-level triage, one hit is enough to mark unsafe.
-                break
-            }
+    private fun scanSingleBook(book: Book): ScanOutcome {
+        if (!book.isLocalTxt) {
+            return ScanOutcome(skipReason = SkipReason.UNSUPPORTED_TYPE)
         }
+        val text = readBookText(book)
+        if (text.isNullOrBlank()) {
+            return ScanOutcome(skipReason = SkipReason.EMPTY_CONTENT)
+        }
+        val result = moderationService.analyzeText(text)
+        val flaggedCount = result.flaggedChapters
+        val firstFlaggedTitle = result.details.firstOrNull()?.title.orEmpty()
 
         return if (flaggedCount > 0) {
-            UnsafeBookItem(
-                book = book,
-                flaggedChapterCount = flaggedCount,
-                firstFlaggedChapterTitle = firstFlaggedTitle
+            ScanOutcome(
+                unsafeItem = UnsafeBookItem(
+                    book = book,
+                    flaggedChapterCount = flaggedCount,
+                    firstFlaggedChapterTitle = firstFlaggedTitle
+                )
             )
         } else {
-            null
+            ScanOutcome()
         }
+    }
+
+    private fun readBookText(book: Book): String? {
+        return LocalBook.getBookInputStream(book)
+            .bufferedReader(book.fileCharset())
+            .use { it.readText() }
     }
 }
