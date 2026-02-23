@@ -13,9 +13,9 @@ data class TocModerationCacheItem(
 )
 
 data class TocModerationCachePayload(
-    val checkedChapters: Int,
-    val skippedChapters: Int,
-    val flaggedItems: List<TocModerationCacheItem>,
+    val checkedChapters: Int = 0,
+    val skippedChapters: Int = 0,
+    val flaggedItems: List<TocModerationCacheItem>? = emptyList(),
     val updatedAt: Long = System.currentTimeMillis()
 )
 

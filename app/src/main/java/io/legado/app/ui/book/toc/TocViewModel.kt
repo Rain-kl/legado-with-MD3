@@ -619,7 +619,7 @@ class TocViewModel(
             isRunning = false,
             checkedChapters = checkedChapters,
             skippedChapters = skippedChapters,
-            flaggedItems = flaggedItems.map {
+            flaggedItems = flaggedItems.orEmpty().map {
                 TocModerationItemUi(
                     chapterIndex = it.chapterIndex,
                     chapterTitle = it.chapterTitle,
