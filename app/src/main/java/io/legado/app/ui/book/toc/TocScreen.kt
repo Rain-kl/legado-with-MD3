@@ -55,6 +55,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
@@ -275,9 +276,9 @@ fun TocScreen(
     }
 
     LaunchedEffect(book?.bookUrl) {
-        // book 首次加载完成后触发一次后台安全审查，避免 book 尚未就绪导致未执行
+        // 目录页首次进入就触发：有缓存则直接命中，无缓存则执行审查。
         if (book != null) {
-            viewModel.ensureModerationOnce()
+            viewModel.runSafetyModerationByToc(forceRefresh = false)
         }
     }
 
@@ -527,43 +528,51 @@ fun TocScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButtonMenu(
-                modifier = Modifier
-                    .offset(x = 16.dp, y = 16.dp),
-                expanded = fabMenuExpanded,
-                button = {
-                    ToggleFloatingActionButton(
-                        modifier = Modifier
-                            .animateFloatingActionButton(
-                                visible = shouldShowFab,
-                                alignment = Alignment.BottomEnd,
-                            )
-                            .focusRequester(focusRequester),
-                        checked = fabMenuExpanded,
-                        onCheckedChange = { fabMenuExpanded = !fabMenuExpanded },
-                    ) {
-                        val imageVector by remember {
-                            derivedStateOf {
-                                if (checkedProgress > 0.5f) Icons.Filled.Close else Icons.AutoMirrored.Filled.MenuOpen
+            if (pagerState.currentPage == 2) {
+                FloatingActionButton(
+                    onClick = { viewModel.runSafetyModerationByToc(forceRefresh = true) }
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "重新安全审查")
+                }
+            } else {
+                FloatingActionButtonMenu(
+                    modifier = Modifier
+                        .offset(x = 16.dp, y = 16.dp),
+                    expanded = fabMenuExpanded,
+                    button = {
+                        ToggleFloatingActionButton(
+                            modifier = Modifier
+                                .animateFloatingActionButton(
+                                    visible = shouldShowFab,
+                                    alignment = Alignment.BottomEnd,
+                                )
+                                .focusRequester(focusRequester),
+                            checked = fabMenuExpanded,
+                            onCheckedChange = { fabMenuExpanded = !fabMenuExpanded },
+                        ) {
+                            val imageVector by remember {
+                                derivedStateOf {
+                                    if (checkedProgress > 0.5f) Icons.Filled.Close else Icons.AutoMirrored.Filled.MenuOpen
+                                }
                             }
+                            Icon(
+                                imageVector = imageVector,
+                                contentDescription = "Menu",
+                                modifier = Modifier.animateIcon({ checkedProgress }),
+                            )
                         }
-                        Icon(
-                            imageVector = imageVector,
-                            contentDescription = "Menu",
-                            modifier = Modifier.animateIcon({ checkedProgress }),
+                    }
+                ) {
+                    fabItems.forEach { (icon, label, action) ->
+                        FloatingActionButtonMenuItem(
+                            onClick = {
+                                action()
+                                fabMenuExpanded = false
+                            },
+                            icon = { Icon(icon, contentDescription = null) },
+                            text = { Text(text = label) }
                         )
                     }
-                }
-            ) {
-                fabItems.forEach { (icon, label, action) ->
-                    FloatingActionButtonMenuItem(
-                        onClick = {
-                            action()
-                            fabMenuExpanded = false
-                        },
-                        icon = { Icon(icon, contentDescription = null) },
-                        text = { Text(text = label) }
-                    )
                 }
             }
         }
@@ -909,82 +918,83 @@ fun ModerationListContent(
         else moderationState.flaggedItems
     }
 
-    if (moderationState.isRunning) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Text(
-                    text = "正在按目录审查章节内容...",
-                    modifier = Modifier.padding(top = 12.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+    when {
+        moderationState.isRunning && !moderationState.hasRun -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = "正在按目录审查章节内容...",
+                        modifier = Modifier.padding(top = 12.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        !moderationState.hasRun -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                EmptyMessageView(message = "尚未执行安全审查")
+            }
+        }
+
+        displayItems.isEmpty() -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                EmptyMessageView(
+                    message = "未发现风险章节\n已审查 ${moderationState.checkedChapters} 章，跳过 ${moderationState.skippedChapters} 章"
                 )
             }
         }
-        return
-    }
 
-    if (!moderationState.hasRun) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            EmptyMessageView(message = "尚未执行安全审查")
-        }
-        return
-    }
-
-    if (displayItems.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            EmptyMessageView(
-                message = "未发现风险章节\n已审查 ${moderationState.checkedChapters} 章，跳过 ${moderationState.skippedChapters} 章"
-            )
-        }
-        return
-    }
-
-    FastScrollLazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = contentPadding
-    ) {
-        item(key = "moderation-summary") {
-            Text(
-                text = "命中 ${displayItems.size} 章 · 已审查 ${moderationState.checkedChapters} 章 · 跳过 ${moderationState.skippedChapters} 章",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        items(
-            items = displayItems,
-            key = { it.chapterIndex }
-        ) { item ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateItem()
-                    .combinedClickable(onClick = { onChapterClick(item.chapterIndex) }),
-                color = Color.Transparent
+        else -> {
+            FastScrollLazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = contentPadding
             ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                item(key = "moderation-summary") {
                     Text(
-                        text = item.chapterTitle,
-                        style = MaterialTheme.typography.bodyMediumEmphasized.copy(fontWeight = FontWeight.Medium),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "章节索引 ${item.chapterIndex} · 得分 %.2f · 命中行数 ${item.flaggedLinesCount}".format(item.score),
-                        modifier = Modifier.padding(top = 4.dp),
+                        text = "命中 ${displayItems.size} 章 · 已审查 ${moderationState.checkedChapters} 章 · 跳过 ${moderationState.skippedChapters} 章",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                items(
+                    items = displayItems,
+                    key = { it.chapterIndex }
+                ) { item ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateItem()
+                            .combinedClickable(onClick = { onChapterClick(item.chapterIndex) }),
+                        color = Color.Transparent
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                            Text(
+                                text = item.chapterTitle,
+                                style = MaterialTheme.typography.bodyMediumEmphasized.copy(fontWeight = FontWeight.Medium),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "章节索引 ${item.chapterIndex} · 得分 %.2f · 命中行数 ${item.flaggedLinesCount}".format(item.score),
+                                modifier = Modifier.padding(top = 4.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }

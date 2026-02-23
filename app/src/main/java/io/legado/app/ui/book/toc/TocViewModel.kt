@@ -496,6 +496,27 @@ class TocViewModel(
         runSafetyModerationByToc(forceRefresh = false)
     }
 
+    fun loadModerationCacheThenRefresh() {
+        if (_moderationState.value.isRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = bookState.value ?: return@launch
+            TocModerationCacheStore.get(book.name, book.author)?.let { cached ->
+                _moderationState.value = cached.toUiState()
+            }
+            runSafetyModerationByToc(forceRefresh = true)
+        }
+    }
+
+    fun loadModerationCacheOnly() {
+        if (_moderationState.value.isRunning) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val book = bookState.value ?: return@launch
+            TocModerationCacheStore.get(book.name, book.author)?.let { cached ->
+                _moderationState.value = cached.toUiState()
+            }
+        }
+    }
+
     fun runSafetyModerationByToc(forceRefresh: Boolean = false) {
         if (_moderationState.value.isRunning) return
         viewModelScope.launch(Dispatchers.IO) {
