@@ -87,7 +87,7 @@ import io.legado.app.ui.widget.components.GlassMediumFlexibleTopAppBar
 import io.legado.app.ui.widget.components.SearchBarSection
 import io.legado.app.ui.widget.components.SectionHeader
 import io.legado.app.ui.widget.components.button.AlertButton
-import io.legado.app.ui.widget.components.button.SmallTopBarButton
+import io.legado.app.ui.widget.components.button.TopbarNavigationButton
 import io.legado.app.ui.widget.components.heatmap.HeatmapCalendarTopBar
 import io.legado.app.ui.widget.components.heatmap.HeatmapConfig
 import io.legado.app.ui.widget.components.heatmap.HeatmapLegend
@@ -98,6 +98,7 @@ import io.legado.app.ui.widget.components.heatmap.WeekdayLabelsColumn
 import io.legado.app.ui.widget.components.heatmap.rememberDateRange
 import io.legado.app.ui.widget.components.heatmap.rememberDaysInRange
 import io.legado.app.ui.widget.components.heatmap.rememberWeeks
+import io.legado.app.ui.widget.components.modalBottomSheet.GlassModalBottomSheet
 import io.legado.app.ui.widget.components.swipe.SwipeAction
 import io.legado.app.ui.widget.components.swipe.SwipeActionContainer
 import io.legado.app.utils.StringUtils.formatFriendlyDate
@@ -163,7 +164,7 @@ fun ReadRecordScreen(
                         )
                     },
                     navigationIcon = {
-                        SmallTopBarButton(onClick = onBackClick)
+                        TopbarNavigationButton(onClick = onBackClick)
                     },
                     actions = {
                         IconButton(onClick = {
@@ -317,11 +318,8 @@ fun ReadRecordScreen(
     }
 
     if (showCalendar) {
-        val sheetState =
-            androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        androidx.compose.material3.ModalBottomSheet(
-            onDismissRequest = { showCalendar = false },
-            sheetState = sheetState
+        GlassModalBottomSheet(
+            onDismissRequest = { showCalendar = false }
         ) {
             HeatmapCalendarSection(
                 dailyReadCounts = state.dailyReadCounts,

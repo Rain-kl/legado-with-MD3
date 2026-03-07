@@ -59,6 +59,7 @@ import io.legado.app.help.config.LocalConfig
 import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.BookCover
+import io.legado.app.model.SourceCallBack
 import io.legado.app.model.remote.RemoteBookWebDav
 import io.legado.app.ui.about.AppLogDialog
 import io.legado.app.ui.book.audio.AudioPlayActivity
@@ -288,6 +289,10 @@ class BookInfoActivity :
 
             R.id.menu_refresh -> {
                 refreshBook()
+            }
+
+            R.id.menu_sync_remote -> {
+                viewModel.syncFromRemote()
             }
 
             R.id.menu_login -> viewModel.bookSource?.let {
@@ -676,7 +681,7 @@ class BookInfoActivity :
             duration = 400L
             addUpdateListener { animation ->
                 val color = animation.animatedValue as Int
-                binding.btnRead.setBackgroundColor(color)
+                binding.btnRead.backgroundTintList = ColorStateList.valueOf(color)
             }
         }
 
@@ -845,15 +850,47 @@ class BookInfoActivity :
         }
         tvAuthor.setOnClickListener {
             viewModel.getBook(false)?.let { book ->
-                startActivity<SearchActivity> {
-                    putExtra("key", book.author)
+                SourceCallBack.callBackBtn(
+                    this@BookInfoActivity,
+                    SourceCallBack.CLICK_AUTHOR,
+                    viewModel.bookSource,
+                    book,
+                    null
+                ) {
+                    startActivity<SearchActivity> {
+                        putExtra("key", book.author)
+                    }
                 }
             }
         }
+        tvAuthor.setOnLongClickListener {
+            viewModel.getBook(false)?.let { book ->
+                SourceCallBack.callBackBtn(
+                    this@BookInfoActivity,
+                    SourceCallBack.LONG_CLICK_AUTHOR,
+                    viewModel.bookSource,
+                    book,
+                    null
+                ) {
+                    startActivity<SearchActivity> {
+                        putExtra("key", book.author)
+                    }
+                }
+            }
+            true
+        }
         tvName.setOnClickListener {
             viewModel.getBook(false)?.let { book ->
-                startActivity<SearchActivity> {
-                    putExtra("key", book.name)
+                SourceCallBack.callBackBtn(
+                    this@BookInfoActivity,
+                    SourceCallBack.CLICK_BOOK_NAME,
+                    viewModel.bookSource,
+                    book,
+                    null
+                ) {
+                    startActivity<SearchActivity> {
+                        putExtra("key", book.name)
+                    }
                 }
             }
         }
@@ -939,14 +976,14 @@ class BookInfoActivity :
 
     @SuppressLint("InflateParams")
     private fun deleteBook() {
-        viewModel.getBook()?.let {
+        viewModel.getBook()?.let { book ->
             if (LocalConfig.bookInfoDeleteAlert) {
                 alert(
                     titleResource = R.string.draw,
                     messageResource = R.string.sure_del
                 ) {
                     var checkBox: CheckBox? = null
-                    if (it.isLocal) {
+                    if (book.isLocal) {
                         checkBox = CheckBox(this@BookInfoActivity).apply {
                             setText(R.string.delete_book_file)
                             isChecked = LocalConfig.deleteBookOriginal
@@ -961,6 +998,11 @@ class BookInfoActivity :
                         if (checkBox != null) {
                             LocalConfig.deleteBookOriginal = checkBox.isChecked
                         }
+                        SourceCallBack.callBackBook(
+                            SourceCallBack.DEL_BOOK_SHELF,
+                            viewModel.bookSource,
+                            book
+                        ) //确认后删除书架
                         viewModel.delBook(LocalConfig.deleteBookOriginal) {
                             setResult(RESULT_OK)
                             finish()
@@ -969,6 +1011,11 @@ class BookInfoActivity :
                     noButton()
                 }
             } else {
+                SourceCallBack.callBackBook(
+                    SourceCallBack.DEL_BOOK_SHELF,
+                    viewModel.bookSource,
+                    book
+                ) //点按钮直接删除书架
                 viewModel.delBook(LocalConfig.deleteBookOriginal) {
                     setResult(RESULT_OK)
                     finish()

@@ -1409,4 +1409,8 @@
     <string name="bookshelf_safety_review_select_book">请先选择书籍</string>
     <string name="bookshelf_safety_review_first_hit">首个命中章节：%1$s</string>
     <string name="bookshelf_safety_review_hit_count">命中章节：%1$d</string>
+    <string name="is_blur_progressive_enable">启用渐变模糊</string>
+    <string name="enable_select_vibrator">选择文本时震动</string>
+    <string name="re_sync_webdav">重新同步远程书籍</string>
+    <string name="underline_padding">离字间距</string>
 </resources>
