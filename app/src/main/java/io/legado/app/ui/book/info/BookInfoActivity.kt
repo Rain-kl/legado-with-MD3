@@ -22,7 +22,6 @@ import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import androidx.activity.addCallback
-import androidx.activity.viewModels
 import androidx.core.app.ActivityCompat
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.ContextCompat
@@ -44,10 +43,7 @@ import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
 import io.legado.app.databinding.ActivityBookInfoBinding
 import io.legado.app.databinding.DialogEditTextBinding
-import io.legado.app.exception.NoStackTraceException
-import io.legado.app.help.AppWebDav
 import io.legado.app.help.book.addType
-import io.legado.app.help.book.getRemoteUrl
 import io.legado.app.help.book.isAudio
 import io.legado.app.help.book.isImage
 import io.legado.app.help.book.isLocal
@@ -60,7 +56,6 @@ import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.BookCover
 import io.legado.app.model.SourceCallBack
-import io.legado.app.model.remote.RemoteBookWebDav
 import io.legado.app.ui.about.AppLogDialog
 import io.legado.app.ui.book.audio.AudioPlayActivity
 import io.legado.app.ui.book.changecover.ChangeCoverDialog
@@ -90,7 +85,6 @@ import io.legado.app.utils.gone
 import io.legado.app.utils.longToastOnUi
 import io.legado.app.utils.openFileUri
 import io.legado.app.utils.sendToClip
-import io.legado.app.utils.shareWithQr
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivity
 import io.legado.app.utils.toastOnUi
@@ -102,6 +96,7 @@ import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class BookInfoActivity :
     VMBaseActivity<ActivityBookInfoBinding, BookInfoViewModel>(),
@@ -171,7 +166,7 @@ class BookInfoActivity :
     private val book get() = viewModel.getBook(false)
 
     override val binding by viewBinding(ActivityBookInfoBinding::inflate)
-    override val viewModel by viewModels<BookInfoViewModel>()
+    override val viewModel: BookInfoViewModel by viewModel()
 
     @SuppressLint("PrivateResource")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -281,9 +276,21 @@ class BookInfoActivity :
 
             R.id.menu_share_it -> {
                 viewModel.getBook()?.let {
-                    val bookJson = GSON.toJson(it)
-                    val shareStr = "${it.bookUrl}#$bookJson"
-                    shareWithQr(shareStr, it.name)
+                    SourceCallBack.callBackBtn(
+                        this,
+                        SourceCallBack.CLICK_SHARE_BOOK,
+                        viewModel.bookSource,
+                        it,
+                        null
+                    ) {
+                        val bookJson = GSON.toJson(it)
+                        val shareStr = "${it.bookUrl}#$bookJson"
+                        val intent = Intent(Intent.ACTION_SEND)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        intent.putExtra(Intent.EXTRA_TEXT, shareStr)
+                        intent.type = "text/plain"
+                        startActivity(Intent.createChooser(intent, it.name))
+                    }
                 }
             }
 
@@ -305,12 +312,28 @@ class BookInfoActivity :
             R.id.menu_top -> viewModel.topBook()
             R.id.menu_set_source_variable -> setSourceVariable()
             R.id.menu_set_book_variable -> setBookVariable()
-            R.id.menu_copy_book_url -> viewModel.getBook()?.bookUrl?.let {
-                sendToClip(it)
+            R.id.menu_copy_book_url -> viewModel.getBook()?.let {
+                SourceCallBack.callBackBtn(
+                    this,
+                    SourceCallBack.CLICK_COPY_BOOK_URL,
+                    viewModel.bookSource,
+                    it,
+                    null
+                ) {
+                    sendToClip(it.bookUrl)
+                }
             }
 
-            R.id.menu_copy_toc_url -> viewModel.getBook()?.tocUrl?.let {
-                sendToClip(it)
+            R.id.menu_copy_toc_url -> viewModel.getBook()?.let {
+                SourceCallBack.callBackBtn(
+                    this,
+                    SourceCallBack.CLICK_COPY_TOC_URL,
+                    viewModel.bookSource,
+                    it,
+                    null
+                ) {
+                    sendToClip(it.tocUrl)
+                }
             }
 
             R.id.menu_can_update -> {
@@ -325,7 +348,18 @@ class BookInfoActivity :
                 }
             }
 
-            R.id.menu_clear_cache -> viewModel.clearCache()
+            R.id.menu_clear_cache -> viewModel.getBook()?.let {
+                SourceCallBack.callBackBtn(
+                    this,
+                    SourceCallBack.CLICK_CLEAR_CACHE,
+                    viewModel.bookSource,
+                    it,
+                    null
+                ) {
+                    viewModel.clearCache(it)
+                }
+            }
+
             R.id.menu_log -> showDialogFragment<AppLogDialog>()
             R.id.menu_text_moderation -> viewModel.runTextModeration()
             R.id.menu_split_long_chapter -> {
@@ -342,14 +376,9 @@ class BookInfoActivity :
             R.id.menu_delete_book -> deleteBook()
             R.id.menu_upload -> {
                 viewModel.getBook()?.let { book ->
-                    book.getRemoteUrl()?.let {
-                        alert(R.string.draw, R.string.sure_upload) {
-                            okButton {
-                                upLoadBook(book)
-                            }
-                            cancelButton()
-                        }
-                    } ?: upLoadBook(book)
+                    viewModel.uploadBook(book) {
+                        toastOnUi("上传成功")
+                    }
                 }
             }
 
@@ -391,17 +420,6 @@ class BookInfoActivity :
         }
     }
 
-//    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-//        if (ev.action == MotionEvent.ACTION_DOWN) {
-//            currentFocus?.let {
-//                if (it === binding.tvIntro && binding.tvIntro.hasSelection()) {
-//                    it.clearFocus()
-//                }
-//            }
-//        }
-//        return super.dispatchTouchEvent(ev)
-//    }
-
     private fun setupBackCallback() {
         onBackPressedDispatcher.addCallback(this) {
             if (!viewModel.inBookshelf && AppConfig.showAddToShelfAlert) {
@@ -427,28 +445,6 @@ class BookInfoActivity :
         upLoading(true)
         viewModel.getBook()?.let {
             viewModel.refreshBook(it)
-        }
-    }
-
-    private fun upLoadBook(
-        book: Book,
-        bookWebDav: RemoteBookWebDav? = AppWebDav.defaultBookWebDav,
-    ) {
-        lifecycleScope.launch {
-            waitDialog.setText("上传中.....")
-            waitDialog.show()
-            try {
-                bookWebDav
-                    ?.upload(book)
-                    ?: throw NoStackTraceException("未配置webDav")
-                //更新书籍最后更新时间,使之比远程书籍的时间新
-                book.lastCheckTime = System.currentTimeMillis()
-                viewModel.saveBook(book)
-            } catch (e: Exception) {
-                toastOnUi(e.localizedMessage)
-            } finally {
-                waitDialog.dismiss()
-            }
         }
     }
 

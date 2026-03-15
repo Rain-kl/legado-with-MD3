@@ -11,10 +11,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -30,10 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import io.legado.app.ui.widget.components.card.GlassCard
+import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -42,6 +43,7 @@ fun SettingItem(
     painter: Painter? = null,
     imageVector: ImageVector? = null,
     color: Color? = null,
+    shape: Shape = MaterialTheme.shapes.extraSmall,
     title: String,
     description: String? = null,
     option: String? = null,
@@ -58,14 +60,16 @@ fun SettingItem(
     val isExpandable = expandContent != null && onExpandChange != null
 
     GlassCard(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth(),
-        shape = RoundedCornerShape(4.dp),
-        color = color ?: MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = color ?: MaterialTheme.colorScheme.surfaceContainerLow
+        ),
     ) {
         Column {
             ListItem(
-                modifier = modifier
+                modifier = Modifier
                     .combinedClickable(
                         onClick = {
                             when {
@@ -139,7 +143,7 @@ fun SettingItem(
                         }
 
                         dropdownMenu?.let { menu ->
-                            DropdownMenu(
+                            RoundDropdownMenu(
                                 expanded = showMenu,
                                 onDismissRequest = { showMenu = false }) {
                                 menu { showMenu = false }

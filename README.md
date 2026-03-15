@@ -32,7 +32,7 @@ Design 3 风格重构版本。
 * **阅读记录：** 提供详尽的阅读记录，支持 **时间轴** 与 **章节维度** 统计。
 * **体验增强：** 更健全的 **漫画阅读** 、 **有声书** 与 **发现** 等界面体验。
 * **书架布局：** 更多的书架布局选择，针对 **平板端** 进行了专门的界面优化。
-* **实用功能：** 新增书籍备注、智能伴生分组（自动归类已读/未读）等。
+* **实用功能：** 新增书籍备注、智能伴生分组（自动归类已读/未读），支持**手柄**上下**翻页**。
 
 ---
 
@@ -53,10 +53,8 @@ Design 3 风格重构版本。
 以下为原项目的社区，本项目由于开发者比较忙，暂时没有独立社区。
 
 * **官方 Wiki:** [书源规则教程](https://mgz0227.github.io/The-tutorial-of-Legado/)
-* **交流社区:
-  ** [Telegram 频道](https://t.me/legado_channels) | [Discord](https://discord.gg/VtUfRyzRXn) | [语雀 Wiki](https://www.yuque.com/legado/wiki/community)
-* **相关文档:
-  ** [免责声明](https://gedoor.github.io/Disclaimer) | [更新日志](https://www.google.com/search?q=/app/src/main/assets/updateLog.md)
+* **交流社区:** [Telegram 频道](https://t.me/legado_channels) | [Discord](https://discord.gg/VtUfRyzRXn) | [语雀 Wiki](https://www.yuque.com/legado/wiki/community)
+* **相关文档:** [免责声明](https://gedoor.github.io/Disclaimer)
 
 ---
 

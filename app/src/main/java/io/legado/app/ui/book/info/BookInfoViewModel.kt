@@ -11,17 +11,15 @@ import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.constant.BookType
 import io.legado.app.constant.EventBus
-import io.legado.app.cust.webdav.CustWebDavBookLocator
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookSource
+import io.legado.app.data.repository.RemoteBookRepository
 import io.legado.app.exception.NoBooksDirException
 import io.legado.app.exception.NoStackTraceException
-import io.legado.app.help.AppWebDav
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.getExportFileName
-import io.legado.app.help.book.getRemoteUrl
 import io.legado.app.help.book.isLocal
 import io.legado.app.help.book.isNotShelf
 import io.legado.app.help.book.isSameNameAuthor
@@ -34,13 +32,13 @@ import io.legado.app.model.AudioPlay
 import io.legado.app.model.BookCover
 import io.legado.app.model.ReadBook
 import io.legado.app.model.ReadManga
+import io.legado.app.model.SourceCallBack
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.model.localBook.LocalBook
 import io.legado.app.model.analyzeRule.CustomUrl
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.utils.ArchiveUtils
 import io.legado.app.utils.UrlUtil
-import io.legado.app.utils.isContentScheme
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.moderation.TextModerationService
@@ -48,7 +46,10 @@ import io.legado.app.utils.moderation.model.AnalysisResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 
-class BookInfoViewModel(application: Application) : BaseViewModel(application) {
+class BookInfoViewModel(
+    application: Application,
+    private val remoteBookRepository: RemoteBookRepository
+) : BaseViewModel(application) {
     val bookData = MutableLiveData<Book>()
     val chapterListData = MutableLiveData<List<BookChapter>>()
     val webFiles = mutableListOf<WebFile>()
@@ -127,21 +128,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
         executeLazy(executeContext = IO) {
             if (book.isLocal) {
                 book.tocUrl = ""
-                val remoteUrl = book.getRemoteUrl()
-                    ?: CustWebDavBookLocator.findBookPathByName(book.originName)
-                remoteUrl?.let {
-                    val bookWebDav = AppWebDav.defaultBookWebDav
-                        ?: throw NoStackTraceException("webDav没有配置")
-                    val remoteBook = bookWebDav.getRemoteBook(it)
-                    if (remoteBook == null) {
-                        book.origin = BookType.localTag
-                    } else if (remoteBook.lastModify > book.lastCheckTime) {
-                        val uri = bookWebDav.downloadRemoteBook(remoteBook)
-                        book.bookUrl = if (uri.isContentScheme()) uri.toString() else uri.path!!
-                        book.lastCheckTime = remoteBook.lastModify
-                        book.origin = BookType.webDavTag + CustomUrl(it).toString()
-                    }
-                }
+                remoteBookRepository.refreshLocalBook(book)
             } else {
                 val bs = bookSource ?: return@executeLazy
                 if (book.originName != bs.bookSourceName) {
@@ -167,25 +154,9 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
         val book = bookData.value ?: return
         if (!book.isLocal) return
 
-        val remoteUrl = book.getRemoteUrl() ?: return
-
         execute {
             waitDialogData.postValue(true)
-            val bookWebDav = AppWebDav.defaultBookWebDav
-                ?: throw NoStackTraceException("webDav没有配置")
-
-            val remoteBook = bookWebDav.getRemoteBook(remoteUrl)
-                ?: throw NoStackTraceException("远程文件不存在")
-
-            val downloadBookUri = bookWebDav.downloadRemoteBook(remoteBook)
-
-            val importedBooks = LocalBook.importFiles(downloadBookUri)
-            val newBook = importedBooks.firstOrNull() ?: throw NoStackTraceException("导入失败")
-
-            newBook.durChapterIndex = book.durChapterIndex
-            newBook.durChapterPos = book.durChapterPos
-            newBook.order = book.order
-            newBook.group = book.group
+            val newBook = remoteBookRepository.syncBookFromRemote(book)
 
             appDb.bookDao.delete(book)
             appDb.bookDao.insert(newBook)
@@ -196,6 +167,21 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             context.toastOnUi("同步完成")
         }.onFinally {
             waitDialogData.postValue(false)
+        }.onError {
+            context.toastOnUi(it.localizedMessage)
+        }
+    }
+
+    fun uploadBook(book: Book, success: () -> Unit) {
+        execute {
+            waitDialogData.postValue(true)
+            remoteBookRepository.uploadBook(book)
+            saveBook(book)
+            success.invoke()
+        }.onFinally {
+            waitDialogData.postValue(false)
+        }.onError {
+            context.toastOnUi(it.localizedMessage)
         }
     }
 
@@ -465,7 +451,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
         }
     }
 
-    fun addToBookshelf(success: (() -> Unit)?) {
+    fun addToBookshelf(success: (() -> Unit)?) { //点击书架按钮或在加分组时触发
         execute {
             bookData.value?.let { book ->
                 book.removeType(BookType.notShelf)
@@ -483,6 +469,7 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
                     AudioPlay.book = book
                 }
                 book.save()
+                SourceCallBack.callBackBook(SourceCallBack.ADD_BOOK_SHELF, bookSource, book)
             }
             chapterListData.value?.let {
                 appDb.bookChapterDao.insert(*it.toTypedArray())
@@ -515,13 +502,13 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
         }
     }
 
-    fun clearCache() {
+    fun clearCache(book: Book) {
         execute {
-            BookHelp.clearCache(bookData.value!!)
-            if (ReadBook.book?.bookUrl == bookData.value!!.bookUrl) {
+            BookHelp.clearCache(book)
+            if (ReadBook.book?.bookUrl == book.bookUrl) {
                 ReadBook.clearTextChapter()
             }
-            if (ReadManga.book?.bookUrl == bookData.value!!.bookUrl) {
+            if (ReadManga.book?.bookUrl == book.bookUrl) {
                 ReadManga.clearMangaChapter()
             }
         }.onSuccess {
@@ -530,7 +517,6 @@ class BookInfoViewModel(application: Application) : BaseViewModel(application) {
             context.toastOnUi("清理缓存出错\n${it.localizedMessage}")
         }
     }
-
 
     fun addToBookshelf(book: Book, toc: List<BookChapter>, success: (() -> Unit)? = null) {
         execute {

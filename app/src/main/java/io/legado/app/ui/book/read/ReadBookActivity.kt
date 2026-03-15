@@ -62,6 +62,7 @@ import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
+import io.legado.app.model.SourceCallBack
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setChapter
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setCoroutineContext
@@ -353,9 +354,10 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
             if (savedInstanceState != null || !ReadBook.inBookshelf) {
                 ReadBook.commitReadSession()
-                finish()
+                supportFinishAfterTransition()
             } else {
                 ReadBook.commitReadSession()
+                callBackBookEnd()
                 supportFinishAfterTransition()
             }
             //TODO: 有关测量相关问题
@@ -1862,6 +1864,15 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
             noButton()
         }
+    }
+
+    private fun callBackBookEnd() {
+        SourceCallBack.callBackBook(
+            SourceCallBack.END_READ,
+            ReadBook.bookSource,
+            ReadBook.book,
+            ReadBook.curTextChapter?.chapter
+        )
     }
 
     override fun onDestroy() {

@@ -1,4 +1,4 @@
-package io.legado.app.ui.book.toc.rule
+package io.legado.app.ui.rss.source.manage
 
 import android.content.ClipData
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
@@ -24,7 +23,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,49 +42,52 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.legado.app.R
 import io.legado.app.base.BaseRuleEvent
-import io.legado.app.data.entities.TxtTocRule
+import io.legado.app.data.entities.RssSource
 import io.legado.app.ui.widget.components.ActionItem
 import io.legado.app.ui.widget.components.DraggableSelectionHandler
+import io.legado.app.ui.widget.components.GroupManageBottomSheet
 import io.legado.app.ui.widget.components.button.SmallIconButton
 import io.legado.app.ui.widget.components.card.ReorderableSelectionItem
+import io.legado.app.ui.widget.components.dialog.TextListInputDialog
+import io.legado.app.ui.widget.components.divider.PillDivider
 import io.legado.app.ui.widget.components.exportComponents.FilePickerSheet
-import io.legado.app.ui.widget.components.exportComponents.FilePickerSheetMode
 import io.legado.app.ui.widget.components.importComponents.BaseImportUiState
 import io.legado.app.ui.widget.components.importComponents.BatchImportDialog
 import io.legado.app.ui.widget.components.importComponents.SourceInputDialog
 import io.legado.app.ui.widget.components.lazylist.FastScrollLazyColumn
-import io.legado.app.ui.widget.components.rules.RuleEditFields
-import io.legado.app.ui.widget.components.rules.RuleEditSheet
+import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
+import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenuItem
 import io.legado.app.ui.widget.components.rules.RuleListScaffold
 import org.koin.androidx.compose.koinViewModel
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun TxtRuleScreen(
-    viewModel: TxtTocRuleViewModel = koinViewModel(),
-    initialRule: String? = null,
-    onPickRule: ((String) -> Unit)? = null,
-    onBackClick: () -> Unit
+fun RssSourceScreen(
+    viewModel: RssSourceViewModel = koinViewModel(),
+    onBackClick: () -> Unit,
+    onEditSource: (RssSource) -> Unit,
+    onAddSource: () -> Unit
 ) {
-
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val groups by viewModel.groupsFlow.collectAsStateWithLifecycle()
 
     val rules = uiState.items
     val selectedIds = uiState.selectedIds
-    val isPickMode = onPickRule != null
-    val inSelectionMode = if (isPickMode) false else selectedIds.isNotEmpty()
+    val inSelectionMode = selectedIds.isNotEmpty()
 
     val listState = rememberLazyListState()
     val hapticFeedback = LocalHapticFeedback.current
 
-    var showEditSheet by remember { mutableStateOf(false) }
-    var editingRule by remember { mutableStateOf<TxtTocRule?>(null) }
-    var showDeleteRuleDialog by remember { mutableStateOf<TxtTocRule?>(null) }
+    var showDeleteRuleDialog by remember { mutableStateOf<RssSource?>(null) }
     var showUrlInput by remember { mutableStateOf(false) }
     var showFilePickerSheet by remember { mutableStateOf(false) }
-    var filePickerMode by remember { mutableStateOf(FilePickerSheetMode.EXPORT) }
+    var showAddToGroupDialog by remember { mutableStateOf(false) }
+    var showRemoveFromGroupDialog by remember { mutableStateOf(false) }
+    var showGroupManageSheet by remember { mutableStateOf(false) }
+
+    var showImportMenu by remember { mutableStateOf(false) }
 
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
         viewModel.moveItemInList(from.index, to.index)
@@ -96,7 +97,6 @@ fun TxtRuleScreen(
     val clipboardManager = LocalClipboard.current
     val snackbarHostState = remember { SnackbarHostState() }
     val importState by viewModel.importState.collectAsStateWithLifecycle()
-    val sheetState = rememberModalBottomSheetState()
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -109,12 +109,7 @@ fun TxtRuleScreen(
                     )
                     if (result == SnackbarResult.ActionPerformed && event.url != null) {
                         clipboardManager.setClipEntry(
-                            ClipEntry(
-                                ClipData.newPlainText(
-                                    "url",
-                                    event.url
-                                )
-                            )
+                            ClipEntry(ClipData.newPlainText("url", event.url))
                         )
                     }
                 }
@@ -152,12 +147,49 @@ fun TxtRuleScreen(
         )
     }
 
+    if (showAddToGroupDialog) {
+        TextListInputDialog(
+            title = stringResource(R.string.add_group),
+            hint = stringResource(R.string.group_name),
+            suggestions = groups,
+            onDismissRequest = { showAddToGroupDialog = false },
+            onConfirm = {
+                viewModel.selectionAddToGroups(selectedIds, it)
+                showAddToGroupDialog = false
+                viewModel.setSelection(emptySet())
+            }
+        )
+    }
+
+    if (showRemoveFromGroupDialog) {
+        TextListInputDialog(
+            title = stringResource(R.string.remove_group),
+            hint = stringResource(R.string.group_name),
+            suggestions = groups,
+            onDismissRequest = { showRemoveFromGroupDialog = false },
+            onConfirm = {
+                viewModel.selectionRemoveFromGroups(selectedIds, it)
+                showRemoveFromGroupDialog = false
+                viewModel.setSelection(emptySet())
+            }
+        )
+    }
+
+    if (showGroupManageSheet) {
+        GroupManageBottomSheet(
+            groups = groups,
+            onDismissRequest = { showGroupManageSheet = false },
+            onUpdateGroup = { old, new -> viewModel.upGroup(old, new) },
+            onDeleteGroup = { viewModel.delGroup(it) }
+        )
+    }
+
     if (showFilePickerSheet) {
         FilePickerSheet(
             onDismissRequest = { showFilePickerSheet = false },
             onSelectSysDir = {
                 showFilePickerSheet = false
-                exportDoc.launch("exportDictRule.json")
+                exportDoc.launch("exportRssSource.json")
             },
             onUpload = {
                 showFilePickerSheet = false
@@ -167,18 +199,18 @@ fun TxtRuleScreen(
         )
     }
 
-    (importState as? BaseImportUiState.Success<TxtTocRule>)?.let { state ->
+    (importState as? BaseImportUiState.Success<RssSource>)?.let { state ->
         BatchImportDialog(
-            title = "导入词典规则",
+            title = stringResource(R.string.import_rss_source),
             importState = state,
             onDismissRequest = { viewModel.cancelImport() },
             onToggleItem = { viewModel.toggleImportSelection(it) },
             onToggleAll = { viewModel.toggleImportAll(it) },
             onConfirm = { viewModel.saveImportedRules() },
-            itemContent = { rule, _ ->
+            itemContent = { source, _ ->
                 Column {
-                    Text(rule.name, style = MaterialTheme.typography.titleMedium)
-                    Text(rule.rule, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    Text(source.sourceName, style = MaterialTheme.typography.titleMedium)
+                    Text(source.sourceUrl, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 }
             }
         )
@@ -190,84 +222,39 @@ fun TxtRuleScreen(
         }
     }
 
-    showDeleteRuleDialog?.let { rule ->
+    showDeleteRuleDialog?.let { source ->
         AlertDialog(
             onDismissRequest = { showDeleteRuleDialog = null },
             title = { Text(stringResource(R.string.delete)) },
             text = { Text(stringResource(R.string.del_msg)) },
             confirmButton = {
                 OutlinedButton(onClick = {
-                    viewModel.delete(rule); showDeleteRuleDialog = null
+                    viewModel.del(source); showDeleteRuleDialog = null
                 }) { Text(stringResource(R.string.ok)) }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteRuleDialog = null }) {
-                    Text(
-                        stringResource(R.string.cancel)
-                    )
+                    Text(stringResource(R.string.cancel))
                 }
-            }
-        )
-    }
-
-    if (showEditSheet) {
-        RuleEditSheet(
-            rule = editingRule,
-            title = stringResource(R.string.txt_toc_rule),
-            label1 = stringResource(R.string.regex),
-            label2 = stringResource(R.string.example),
-            onDismissRequest = {
-                showEditSheet = false
-                editingRule = null
-            },
-            onSave = { updatedRule ->
-                //TODO：我很想把他改为自增主键，但为了兼容性日后再说
-                if (editingRule == null) {
-                    viewModel.insert(updatedRule)
-                } else {
-                    viewModel.update(updatedRule)
-                }
-                showEditSheet = false
-                editingRule = null
-            },
-            onCopy = { viewModel.copyRule(it) },
-            onPaste = { viewModel.pasteRule() },
-            toFields = { r ->
-                RuleEditFields(
-                    name = r?.name ?: "",
-                    rule1 = r?.rule ?: "",
-                    rule2 = r?.example ?: ""
-                )
-            },
-            fromFields = { fields, old ->
-                old?.copy(
-                    name = fields.name,
-                    rule = fields.rule1,
-                    example = fields.rule2
-                ) ?: TxtTocRule(
-                    name = fields.name,
-                    rule = fields.rule1,
-                    example = fields.rule2
-                )
             }
         )
     }
 
     RuleListScaffold(
-        title = if (isPickMode) "选择目录规则" else "目录规则",
+        title = stringResource(R.string.rss_source),
+        subtitle = uiState.groupFilterName ?: stringResource(R.string.all),
         state = uiState,
         onBackClick = { onBackClick() },
-        onSearchToggle = { active ->
-            viewModel.setSearchMode(active)
-        },
+        onSearchToggle = { active -> viewModel.setSearchMode(active) },
         onSearchQueryChange = { viewModel.setSearchKey(it) },
-        searchPlaceholder = stringResource(R.string.replace_purify_search),
+        searchPlaceholder = stringResource(R.string.search_rss_source),
         onClearSelection = { viewModel.setSelection(emptySet()) },
         onSelectAll = { viewModel.setSelection(rules.map { it.id }.toSet()) },
         onSelectInvert = {
             val allIds = rules.map { it.id }.toSet()
             viewModel.setSelection(allIds - selectedIds)
         },
+        topBarActions = {},
         selectionSecondaryActions = listOf(
             ActionItem(text = stringResource(R.string.enable), onClick = {
                 viewModel.enableSelectionByIds(selectedIds)
@@ -278,77 +265,120 @@ fun TxtRuleScreen(
                 viewModel.setSelection(emptySet())
             }),
             ActionItem(
+                text = stringResource(R.string.add_group),
+                onClick = { showAddToGroupDialog = true }),
+            ActionItem(
+                text = stringResource(R.string.remove_group),
+                onClick = { showRemoveFromGroupDialog = true }),
+            ActionItem(
                 text = stringResource(R.string.export),
-                onClick = { showFilePickerSheet = true })
+                onClick = { showFilePickerSheet = true }),
+            ActionItem(text = stringResource(R.string.check_selected_interval), onClick = {
+                viewModel.checkSelectedInterval(selectedIds, rules)
+            })
         ),
         onDeleteSelected = { ids ->
             @Suppress("UNCHECKED_CAST")
-            viewModel.delSelectionByIds(ids as Set<Long>)
+            viewModel.delSelectionByIds(ids as Set<String>)
             viewModel.setSelection(emptySet())
         },
-        onAddClick = {
-            editingRule = null
-            showEditSheet = true
-        },
+        onAddClick = { onAddSource() },
         snackbarHostState = snackbarHostState,
         dropDownMenuContent = { dismiss ->
-            DropdownMenuItem(
-                text = { Text("在线导入") },
-                onClick = { dismiss(); showUrlInput = true })
-            DropdownMenuItem(
-                text = { Text("本地导入") },
-                onClick = {
-                    dismiss(); importDoc.launch(
-                    arrayOf(
-                        "text/plain",
-                        "application/json"
-                    )
+            RoundDropdownMenuItem(
+                onClick = { showGroupManageSheet = true },
+                text = { Text("分组管理") },
+            )
+            Box {
+                RoundDropdownMenuItem(
+                    text = { Text(stringResource(R.string.import_rss_source)) },
+                    onClick = { showImportMenu = true }
                 )
-                })
+                RoundDropdownMenu(
+                    expanded = showImportMenu,
+                    onDismissRequest = { showImportMenu = false }
+                ) {
+                    RoundDropdownMenuItem(
+                        text = { Text(stringResource(R.string.import_on_line)) },
+                        onClick = {
+                            showImportMenu = false
+                            dismiss()
+                            showUrlInput = true
+                        }
+                    )
+                    RoundDropdownMenuItem(
+                        text = { Text(stringResource(R.string.import_local)) },
+                        onClick = {
+                            showImportMenu = false
+                            dismiss()
+                            importDoc.launch(arrayOf("text/plain", "application/json"))
+                        }
+                    )
+                    RoundDropdownMenuItem(
+                        text = { Text(stringResource(R.string.import_default_rule)) },
+                        onClick = {
+                            showImportMenu = false
+                            dismiss()
+                            viewModel.importDefault()
+                        }
+                    )
+                }
+            }
+            PillDivider()
+            RoundDropdownMenuItem(
+                text = { Text(stringResource(R.string.all)) },
+                onClick = { dismiss(); viewModel.setGroupFilter(null) }
+            )
+            RoundDropdownMenuItem(
+                text = { Text(stringResource(R.string.enabled)) },
+                onClick = { dismiss(); viewModel.setGroupFilter(RssSourceViewModel.FILTER_ENABLED) }
+            )
+            RoundDropdownMenuItem(
+                text = { Text(stringResource(R.string.disabled)) },
+                onClick = { dismiss(); viewModel.setGroupFilter(RssSourceViewModel.FILTER_DISABLED) }
+            )
+            RoundDropdownMenuItem(
+                text = { Text(stringResource(R.string.need_login)) },
+                onClick = { dismiss(); viewModel.setGroupFilter(RssSourceViewModel.FILTER_LOGIN) }
+            )
+            RoundDropdownMenuItem(
+                text = { Text(stringResource(R.string.no_group)) },
+                onClick = { dismiss(); viewModel.setGroupFilter(RssSourceViewModel.FILTER_NO_GROUP) }
+            )
+            PillDivider()
+            groups.forEach { group ->
+                RoundDropdownMenuItem(
+                    text = { Text(group) },
+                    onClick = { dismiss(); viewModel.setGroupFilter("${RssSourceViewModel.PREFIX_GROUP}$group") }
+                )
+            }
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-            .fillMaxSize()
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             FastScrollLazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
                 contentPadding = PaddingValues(
                     top = paddingValues.calculateTopPadding() + 8.dp,
-                    bottom = paddingValues.calculateBottomPadding() + 120.dp
+                    bottom = paddingValues.calculateBottomPadding() + 80.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(rules, key = { it.id }) { item ->
-
-                    val isItemHighLighted = if (isPickMode) {
-                        item.rule.rule == initialRule
-                    } else {
-                        selectedIds.contains(item.id)
-                    }
-
                     ReorderableSelectionItem(
                         state = reorderableState,
                         key = item.id,
                         title = item.name,
-                        subtitle = item.example,
+                        subtitle = item.group,
                         isEnabled = item.isEnabled,
-                        isSelected = isItemHighLighted,
+                        isSelected = selectedIds.contains(item.id),
                         inSelectionMode = inSelectionMode,
-                        onToggleSelection = {
-                            if (isPickMode) {
-                                onPickRule.invoke(item.rule.rule)
-                                onBackClick()
-                            } else {
-                                viewModel.toggleSelection(item.id)
-                            }
-                        },
-                        onEnabledChange = { enabled -> viewModel.update(item.rule.copy(enable = enabled)) },
-                        onClickEdit = { editingRule = item.rule; showEditSheet = true },
+                        onToggleSelection = { viewModel.toggleSelection(item.id) },
+                        onEnabledChange = { enabled -> viewModel.update(item.source.copy(enabled = enabled)) },
+                        onClickEdit = { onEditSource(item.source) },
                         trailingAction = {
                             SmallIconButton(
-                                onClick = { showDeleteRuleDialog = item.rule },
+                                onClick = { showDeleteRuleDialog = item.source },
                                 icon = Icons.Default.Delete
                             )
                         }

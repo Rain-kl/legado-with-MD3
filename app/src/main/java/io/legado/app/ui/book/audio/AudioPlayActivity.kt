@@ -45,6 +45,7 @@ import io.legado.app.help.book.removeType
 import io.legado.app.help.config.AppConfig
 import io.legado.app.model.AudioPlay
 import io.legado.app.model.BookCover
+import io.legado.app.model.SourceCallBack
 import io.legado.app.service.AudioPlayService
 import io.legado.app.ui.about.AppLogDialog
 import io.legado.app.ui.book.changesource.ChangeBookSourceDialog
@@ -157,8 +158,9 @@ class AudioPlayActivity :
         initView()
         onBackPressedDispatcher.addCallback(this){
             if (savedInstanceState != null || !AudioPlay.inBookshelf) {
-                finish()
+                supportFinishAfterTransition()
             } else {
+                callBackBookEnd()
                 supportFinishAfterTransition()
             }
         }
@@ -190,7 +192,20 @@ class AudioPlayActivity :
             }
             R.id.menu_media_control -> AppConfig.systemMediaControlCompatibilityChange = !AppConfig.systemMediaControlCompatibilityChange
             R.id.menu_wake_lock -> AppConfig.audioPlayUseWakeLock = !AppConfig.audioPlayUseWakeLock
-            R.id.menu_copy_audio_url -> sendToClip(AudioPlayService.url)
+            R.id.menu_copy_audio_url -> {
+                AudioPlay.book?.let {
+                    SourceCallBack.callBackBtn(
+                        this,
+                        SourceCallBack.CLICK_COPY_PLAY_URL,
+                        AudioPlay.bookSource,
+                        it,
+                        AudioPlay.durChapter,
+                        BookType.audio
+                    ) {
+                        sendToClip(AudioPlayService.url)
+                    }
+                }
+            }
             R.id.menu_edit_source -> AudioPlay.bookSource?.let {
                 sourceEditResult.launch {
                     putExtra("sourceUrl", it.bookSourceUrl)
@@ -200,6 +215,15 @@ class AudioPlayActivity :
             R.id.menu_log -> showDialogFragment<AppLogDialog>()
         }
         return super.onCompatOptionsItemSelected(item)
+    }
+
+    private fun callBackBookEnd() {
+        SourceCallBack.callBackBook(
+            SourceCallBack.END_READ,
+            AudioPlay.bookSource,
+            AudioPlay.book,
+            AudioPlay.durChapter
+        )
     }
 
     private fun initView() {
